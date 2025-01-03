@@ -1,0 +1,214 @@
+[
+  {
+    "pattern": "\\w+",
+    "inputs": [
+      {
+        "text": "foo_123",
+        "matches": [
+          ["foo_123"]
+        ]
+      },
+      {
+        "text": "foo!bar",
+        "matches": [
+          ["foo"],
+          ["bar"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\d?",
+    "inputs": [
+      {
+        "text": "1",
+        "matches": [
+          ["1"]
+        ]
+      },
+      {
+        "text": "A",
+        "matches": [
+          [""]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo{3}",
+    "inputs": [
+      {
+        "text": "f fo foo fooo fooo",
+        "matches": [
+          ["fooo"],
+          ["fooo"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo{3,3}",
+    "inputs": [
+      {
+        "text": "f fo foo fooo foooo",
+        "matches": [
+          ["fooo"],
+          ["fooo"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo{,3}",
+    "inputs": [
+      {
+        "text": "f fo foo fooo foooo",
+        "matches": [
+          ["f"],
+          ["fo"],
+          ["foo"],
+          ["fooo"],
+          ["fooo"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo{3,}",
+    "inputs": [
+      {
+        "text": "f fo foo fooo foooo",
+        "matches": [
+          ["fooo"],
+          ["foooo"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo*",
+    "inputs": [
+      {
+        "text": "f fo foo fooo foooo",
+        "matches": [
+          ["f"],
+          ["fo"],
+          ["foo"],
+          ["fooo"],
+          ["foooo"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\w+?",
+    "inputs": [
+      {
+        "text": "foo_123",
+        "matches": [
+          ["f"],
+          ["o"],
+          ["o"],
+          ["_"],
+          ["1"],
+          ["2"],
+          ["3"]
+        ]
+      },
+      {
+        "text": "foo!bar",
+        "matches": [
+          ["f"],
+          ["o"],
+          ["o"],
+          ["b"],
+          ["a"],
+          ["r"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\d??",
+    "inputs": [
+      {
+        "text": "1",
+        "matches": [
+          [""]
+        ]
+      },
+      {
+        "text": "A",
+        "matches": [
+          [""]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo{3}?",
+    "inputs": [
+      {
+        "text": "f fo foo fooo fooo",
+        "matches": [
+          ["fooo"],
+          ["fooo"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo{3,3}?",
+    "inputs": [
+      {
+        "text": "f fo foo fooo foooo",
+        "matches": [
+          ["fooo"],
+          ["fooo"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo{,3}?",
+    "inputs": [
+      {
+        "text": "f fo foo fooo foooo",
+        "matches": [
+          ["f"],
+          ["f"],
+          ["f"],
+          ["f"],
+          ["f"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo{3,}?",
+    "inputs": [
+      {
+        "text": "f fo foo fooo foooo",
+        "matches": [
+          ["fooo"],
+          ["fooo"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "fo*?",
+    "inputs": [
+      {
+        "text": "f fo foo fooo foooo",
+        "matches": [
+          ["f"],
+          ["f"],
+          ["f"],
+          ["f"],
+          ["f"]
+        ]
+      }
+    ]
+  }
+]

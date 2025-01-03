@@ -1,0 +1,119 @@
+[
+  {
+    "pattern": "foo",
+    "inputs": [
+      {
+        "text": "foo",
+        "matches": [
+          ["foo"]
+        ]
+      },
+      {
+        "text": "bar",
+        "matches": []
+      }
+    ]
+  },
+  {
+    "pattern": "ba\\w",
+    "inputs": [
+      {
+        "text": "bar baz ba!",
+        "matches": [
+          ["bar"],
+          ["baz"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\d\\s\\D",
+    "inputs": [
+      {
+        "text": "1 A 5 !",
+        "matches": [
+          ["1 A"],
+          ["5 !"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": ">\\..",
+    "inputs": [
+      {
+        "text": ">.A >.! >.$",
+        "matches": [
+          [">.A"],
+          [">.!"],
+          [">.$"]
+        ]
+      },
+      {
+        "text": ">.\n",
+        "matches": []
+      }
+    ]
+  },
+  {
+    "pattern": "\\S\\s\\W\\w\\D\\d",
+    "inputs": [
+      {
+        "text": "A !z 1",
+        "matches": [
+          ["A !z 1"]
+        ]
+      },
+      {
+        "text": "1\t\t_\t9",
+        "matches": [
+          ["1\t\t_\t9"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\x0A",
+    "matches": [
+      {
+        "text": " ",
+        "matches": [
+          [" "]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\u6F22\\u5b57",
+    "matches": [
+      {
+        "text": "漢字",
+        "matches": [
+          ["漢字"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\u{1FAE0}",
+    "matches": [
+      {
+        "text": "🫠",
+        "matches": [
+          ["🫠"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\cM\\cI",
+    "matches": [
+      {
+        "text": "\r\t",
+        "matches": [
+          "\r\t"
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,94 @@
+[
+  {
+    "pattern": "(\\w+)-(\\d+)",
+    "inputs": [
+      {
+        "text": "foo-123",
+        "matches": [
+          ["foo-123","foo","123"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "([\\u3040-\\u309F]{2})+",
+    "inputs": [
+      {
+        "text": "おはよう",
+        "matches": [
+          ["おはよう", "よう"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(foo(bar)).",
+    "inputs": [
+      {
+        "text": "foobar! foobar?",
+        "matches": [
+          ["foobar!", "foobar", "bar"],
+          ["foobar?", "foobar", "bar"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(\\w)(\\w)(\\w)(\\w)(\\w)(\\w)(\\w)(\\w)(\\w)(\\w)",
+    "inputs": [
+      {
+        "text": "1234567890",
+        "matches": [
+          ["1234567890","1","2","3","4","5","6","7","8","9","0"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "foo(?:\\d{3})",
+    "inputs": [
+      {
+        "text": "foo123 foo890 foobar",
+        "matches": [
+          ["foo123"],
+          ["foo890"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(?i:FOOBAR)",
+    "inputs": [
+      {
+        "text": "foobar fooBAR FOOBAR",
+        "matches": [
+          ["foobar"],
+          ["fooBAR"],
+          ["FOOBAR"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "<(\\w+?)>(.*)</(\\w+?)>",
+    "inputs": [
+      {
+        "text": "<h1>Title</h1>",
+        "matches": [
+          ["<h1>Title</h1>", "h1", "Title", "h1"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(?<FirstName>\\w+) (?<LastName>\\w+)",
+    "inputs": [
+      {
+        "text": "John Johnson",
+        "matches": [
+          ["John Johnson", "John", "Johnson"]
+        ]
+      }
+    ]
+  }
+]

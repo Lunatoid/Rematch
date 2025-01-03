@@ -1,0 +1,120 @@
+[
+  {
+    "pattern": "\\b\\w+\\b",
+    "inputs": [
+      {
+        "text": "Hello world",
+        "matches": [
+          ["Hello"],
+          ["world"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\b(\\w+)\\B",
+    "inputs": [
+      {
+        "text": "Hello how are you?",
+        "matches": [
+          [
+            "Hell",
+            "Hell"
+          ],
+          [
+            "ho",
+            "ho"
+          ],
+          [
+            "ar",
+            "ar"
+          ],
+          [
+            "yo",
+            "yo"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "^(\\w+)",
+    "inputs": [
+      {
+        "text": "Hello, world",
+        "matches": [
+          [
+            "Hello",
+            "Hello"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(\\w+)$",
+    "inputs": [
+      {
+        "text": "Hello, world",
+        "matches": [
+          [
+            "world",
+            "world"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\ba",
+    "inputs": [
+      {
+        "text": "abc",
+        "matches": [
+          [
+            "a"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "c\\b",
+    "inputs": [
+      {
+        "text": "abc",
+        "matches": [
+          [
+            "c"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\B ",
+    "inputs": [
+      {
+        "text": " abc",
+        "matches": [
+          [
+            " "
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": " \\B",
+    "inputs": [
+      {
+        "text": "abc ",
+        "matches": [
+          [
+            " "
+          ]
+        ]
+      }
+    ]
+  }
+]

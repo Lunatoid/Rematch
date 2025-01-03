@@ -1,0 +1,46 @@
+[
+  {
+    "pattern": "cat|dog",
+    "inputs": [
+      {
+        "text": "catdog",
+        "matches": [
+          ["cat"],
+          ["dog"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(foo)|(((bar)))",
+    "inputs": [
+      {
+        "text": "foo",
+        "matches": [
+          ["foo","foo","","",""]
+        ]
+      },
+      {
+        "text": "bar",
+        "matches": [
+          ["bar","","bar","bar","bar"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(a|b)*c",
+    "inputs": [
+      {
+        "text": "ababababababababababababababababababababac",
+        "matches": [
+          [
+            "ababababababababababababababababababababac",
+            "a"
+          ]
+        ]
+      }
+    ]
+  }
+]
+

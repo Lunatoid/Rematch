@@ -1,0 +1,86 @@
+[
+  {
+    "pattern": "(\\w+) \\1",
+    "inputs": [
+      {
+        "text": "Hello Hello",
+        "matches": [
+          ["Hello Hello","Hello"]
+        ]
+      },
+      {
+        "text": "foofoo",
+        "matches": []
+      },
+      {
+        "text": "Ready_123 Ready_123",
+        "matches": [
+          ["Ready_123 Ready_123", "Ready_123"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)\\10",
+    "inputs": [
+      {
+        "text": "01234567899",
+        "matches": [
+          ["01234567899","0","1","2","3","4","5","6","7","8","9"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\1(a)",
+    "inputs": [
+      {
+        "text": "a",
+        "matches": [
+          ["a","a"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "\\2(a)",
+    "inputs": [
+      {
+        "text": "a",
+        "matches": []
+      }
+    ]
+  },
+  {
+    "pattern": "(['\"])(.*?)\\1",
+    "inputs": [
+      {
+        "text": "'my string'",
+        "matches": [
+          ["'my string'", "'", "my string"]
+        ]
+      },
+      {
+        "text": "\"my string\"",
+        "matches": [
+          ["\"my string\"","\"","my string"]
+        ]
+      },
+      {
+        "text": "'my string\"",
+        "matches": []
+      }
+    ]
+  },
+  {
+    "pattern": "(\\w+) (?i:\\1)",
+    "inputs": [
+      {
+        "text": "FOO foo",
+        "matches": [
+          ["FOO foo","FOO"]
+        ]
+      }
+    ]
+  }
+]

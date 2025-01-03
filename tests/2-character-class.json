@@ -1,0 +1,260 @@
+[
+  {
+    "pattern": "[abc]",
+    "inputs": [
+      {
+        "text": "bca",
+        "matches": [
+          ["b"],
+          ["c"],
+          ["a"]
+        ]
+      },
+      {
+        "text": "acdc",
+        "matches": [
+          ["a"],
+          ["c"],
+          ["c"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "[a-cA-C]",
+    "inputs": [
+      {
+        "text": "BcA",
+        "matches": [
+          ["B"],
+          ["c"],
+          ["A"]
+        ]
+      },
+      {
+        "text": "ACdc",
+        "matches": [
+          ["A"],
+          ["C"],
+          ["c"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "[^abc]",
+    "inputs": [
+      {
+        "text": "abcdef",
+        "matches": [
+          ["d"],
+          ["e"],
+          ["f"]
+        ]
+      },
+      {
+        "text": "cab",
+        "matches": []
+      }
+    ]
+  },
+  {
+    "pattern": "[^]",
+    "inputs": [
+      {
+        "text": "abc",
+        "matches": [
+          ["a"],
+          ["b"],
+          ["c"]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "[-^]",
+    "inputs": [
+      {
+        "text": "^-^",
+        "matches": [
+          ["^"],
+          ["-"],
+          ["^"]
+        ]
+      },
+      {
+        "text": "foo",
+        "matches": []
+      }
+    ]
+  },
+  {
+    "pattern": "[あ-\\u309F]",
+    "inputs": [
+      {
+        "text": "おい！",
+        "matches": [
+          ["お"],
+          ["い"]
+        ]
+      },
+      {
+        "text": "オイ。",
+        "matches": []
+      }
+    ]
+  },
+  {
+    "pattern": "[\t\\cM\\x20]",
+    "inputs": [
+      {
+        "text": "\t\r ",
+        "matches": [
+          ["\t"],
+          ["\r"],
+          [" "]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "[\\w]",
+    "inputs": [
+      {
+        "text": "h",
+        "matches": [
+          [
+            "h"
+          ]
+        ]
+      },
+      {
+        "text": "I",
+        "matches": [
+          [
+            "I"
+          ]
+        ]
+      },
+      {
+        "text": "0",
+        "matches": [
+          [
+            "0"
+          ]
+        ]
+      },
+      {
+        "text": "_",
+        "matches": [
+          [
+            "_"
+          ]
+        ]
+      },
+      {
+        "text": "!",
+        "matches": []
+      }
+    ]
+  },
+  {
+    "pattern": "[\\W]",
+    "inputs": [
+      {
+        "text": "h",
+        "matches": []
+      },
+      {
+        "text": "I",
+        "matches": []
+      },
+      {
+        "text": "0",
+        "matches": []
+      },
+      {
+        "text": "_",
+        "matches": []
+      },
+      {
+        "text": "!",
+        "matches": [
+          [
+            "!"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "[\\W\\w]",
+    "inputs": [
+      {
+        "text": "h",
+        "matches": [
+          [
+            "h"
+          ]
+        ]
+      },
+      {
+        "text": "I",
+        "matches": [
+          [
+            "I"
+          ]
+        ]
+      },
+      {
+        "text": "0",
+        "matches": [
+          [
+            "0"
+          ]
+        ]
+      },
+      {
+        "text": "_",
+        "matches": [
+          [
+            "_"
+          ]
+        ]
+      },
+      {
+        "text": "!",
+        "matches": [
+          [
+            "!"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "[^\\W\\w]",
+    "inputs": [
+      {
+        "text": "h",
+        "matches": []
+      },
+      {
+        "text": "I",
+        "matches": []
+      },
+      {
+        "text": "0",
+        "matches": []
+      },
+      {
+        "text": "_",
+        "matches": []
+      },
+      {
+        "text": "!",
+        "matches": []
+      }
+    ]
+  }
+]

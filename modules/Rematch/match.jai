@@ -355,6 +355,8 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
                     p.data -= min_steps;
                     p.count += min_steps;
 
+                    // @TODO: we can try to at least match the first step of the LOOKBEHIND group
+                    // to decide whether to create backtrack state for it.
                     for min_steps..max_steps {
                         add_group_to_stack(group_stack, *step.assertion.group, p_group_start, step.quantifier, group_type, bt_stack.*);
 
@@ -417,8 +419,8 @@ add_group_to_stack :: (group_stack: *[..] Group_State, group: *Regex_Group, p: s
 create_backtrack_state :: (bt_stack: *[..] Backtrack_State, group_stack: [..] Group_State, matches: [..] Regex_Capture, p: string, allocator: Allocator) {
     state := array_add(bt_stack);
     state.p = p;
-    state.captures.allocator = allocator;
 
+    state.captures.allocator = allocator;
     array_resize(*state.captures, matches.count, initialize=false);
     for matches state.captures[it_index] = it;
 
@@ -585,13 +587,13 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
                     add_or_update_capture(*captures, get_state().group, match);
                 }
 
-                if get_state().current_quantifier >= get_state().quantifier.min_times && get_state().current_quantifier <= get_state().quantifier.max_times {
+                if get_state().current_quantifier >= get_state().quantifier.min_times &&
+                   get_state().current_quantifier <= get_state().quantifier.max_times {
 
-                    pop_group := false;
-                    if (get_state().quantifier.greedy  && get_state().current_quantifier == get_state().quantifier.max_times) ||
-                    (!get_state().quantifier.greedy && get_state().current_quantifier >= get_state().quantifier.min_times) {
-                        pop_group = true;
-                    }
+                    is_greedy_and_max_matched := get_state().quantifier.greedy  && get_state().current_quantifier == get_state().quantifier.max_times;
+                    is_lazy_and_min_matched := !get_state().quantifier.greedy && get_state().current_quantifier >= get_state().quantifier.min_times;
+
+                    pop_group := is_greedy_and_max_matched || is_lazy_and_min_matched;
 
                     if pop_group {
                         if get_state().group_type == .LOOKAROUND || get_state().group_type == .NEGATED_LOOKAROUND {
@@ -644,7 +646,9 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
         match_result := Single_Match_Result.FAILURE;
         bt_count_before := bt_stack.count;
 
-        if step.quantifier.min_times == 0 {
+        can_create_backtrack := step.quantifier.min_times != step.quantifier.max_times;
+
+        if can_create_backtrack && step.quantifier.min_times == 0 {
             // Create backtrack state for 0 matches
             create_backtrack_state(*bt_stack, group_stack, captures, p.*, regex.allocator);
         }
@@ -658,7 +662,7 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
 
             match_times += 1;
 
-            if match_times >= step.quantifier.min_times && match_times <= step.quantifier.max_times {
+            if can_create_backtrack && match_times >= step.quantifier.min_times {
                 // Save state since we successfully matched
                 create_backtrack_state(*bt_stack, group_stack, captures, p.*, regex.allocator);
             }

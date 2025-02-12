@@ -475,69 +475,76 @@ parse_escape :: (p: *string) -> int, bool {
 
     if p.data[0] == {
         case #char "n";
-        advance(p);
-        return #char "\n", true;
+            advance(p);
+            return #char "\n", true;
+
         case #char "t";
-        advance(p);
-        return #char "\t", true;
+            advance(p);
+            return #char "\t", true;
+
         case #char "r";
-        advance(p);
-        return #char "\r", true;
+            advance(p);
+            return #char "\r", true;
+
         case #char "v";
-        advance(p);
-        return 11, true; // \v (vertical tab)
+            advance(p);
+            return 11, true; // \v (vertical tab)
+
         case #char "f";
-        advance(p);
-        return 12, true; // \f (formfeed)
+            advance(p);
+            return 12, true; // \f (formfeed)
+
         case #char "0";
-        advance(p);
-        return 0, true; // \0 (null byte)
+            advance(p);
+            return 0, true; // \0 (null byte)
+
         case #char "b";
-        advance(p);
-        return 8, true; // \b (backspace)
+            advance(p);
+            return 8, true; // \b (backspace)
+
         case #char "c";
-        // \cJ
-        advance(p);
-        char := p.data[0] % 32;
-        advance(p);
-        return char, true;
+            // \cJ
+            advance(p);
+            char := p.data[0] % 32;
+            advance(p);
+            return char, true;
 
         case #char "x";
-        // \xFF
-        advance(p);
-        hex_str := p.*;
-        hex_str.count = 2;
-        advance(p, 2);
-        result, success := string_to_int(hex_str, base=16);
-        return result, success;
-        case #char "u";
-        advance(p);
-        hex_str := p.*;
-        hex_str.count = 0;
-        if p.data[0] == #char "{" {
-            // \u{H} - \u{HHHHHH}
-            hex_str.data += 1;
+            // \xFF
             advance(p);
-
-            while p.data[0] != #char "}" {
-                if p.count == 0 then return 0, false;
-                if hex_str.count == 6 then break;
-
-                hex_str.count += 1;
+            hex_str := p.*;
+            hex_str.count = 2;
+            advance(p, 2);
+            result, success := string_to_int(hex_str, base=16);
+            return result, success;
+            case #char "u";
+            advance(p);
+            hex_str := p.*;
+            hex_str.count = 0;
+            if p.data[0] == #char "{" {
+                // \u{H} - \u{HHHHHH}
+                hex_str.data += 1;
                 advance(p);
+
+                while p.data[0] != #char "}" {
+                    if p.count == 0 then return 0, false;
+                    if hex_str.count == 6 then break;
+
+                    hex_str.count += 1;
+                    advance(p);
+                }
+
+                if p.data[0] != #char "}" then return 0, false;
+
+                advance(p);
+            } else {
+                // \uHHHH
+                advance(p, 4);
+                hex_str.count = 4;
             }
 
-            if p.data[0] != #char "}" then return 0, false;
-
-            advance(p);
-        } else {
-            // \uHHHH
-            advance(p, 4);
-            hex_str.count = 4;
-        }
-
-        result, success := string_to_int(hex_str, base=16);
-        return result, success;
+            result, success := string_to_int(hex_str, base=16);
+            return result, success;
     }
 
     p.* = old_p;

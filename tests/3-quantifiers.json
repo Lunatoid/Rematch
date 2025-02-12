@@ -38,7 +38,7 @@
     "pattern": "fo{3}",
     "inputs": [
       {
-        "text": "f fo foo fooo fooo",
+        "text": "f fo foo fooo foooo",
         "matches": [
           ["fooo"],
           ["fooo"]

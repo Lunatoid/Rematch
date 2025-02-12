@@ -74,18 +74,18 @@
   },
   {
     "pattern": "\\x0A",
-    "matches": [
+    "inputs": [
       {
-        "text": " ",
+        "text": "\n",
         "matches": [
-          [" "]
+          ["\n"]
         ]
       }
     ]
   },
   {
     "pattern": "\\u6F22\\u5b57",
-    "matches": [
+    "inputs": [
       {
         "text": "漢字",
         "matches": [
@@ -96,7 +96,7 @@
   },
   {
     "pattern": "\\u{1FAE0}",
-    "matches": [
+    "inputs": [
       {
         "text": "🫠",
         "matches": [
@@ -107,11 +107,11 @@
   },
   {
     "pattern": "\\cM\\cI",
-    "matches": [
+    "inputs": [
       {
         "text": "\r\t",
         "matches": [
-          "\r\t"
+          ["\r\t"]
         ]
       }
     ]

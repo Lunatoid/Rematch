@@ -14,6 +14,7 @@ node_modules/
 *.pem
 *.key
 *.bak
+*.csv
 
 bin/
 .vscode/
@@ -24,4 +25,7 @@ modules/**/source
 modules/**/windows
 modules/**/win
 modules/**/linux
+
+modules/tracy
+
 

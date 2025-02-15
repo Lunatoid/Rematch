@@ -57,12 +57,12 @@ Flags:
 String :: #import "String";
 #import "Unicode";
 #import "Hash_Table";
-#import "Flat_Pool";
 
 #load "compile.jai";
 #load "match.jai";
 #load "replace.jai";
 #load "to_string.jai";
+#load "allocator.jai";
 
 Regex_Flags :: enum_flags {
     NONE :: 0;
@@ -82,7 +82,6 @@ Regex :: struct {
     root: Regex_Group;
     pattern: string;
     max_capture_index: int;
-    max_groups: int;
 }
 
 #scope_module
@@ -179,23 +178,14 @@ Regex_Group :: struct {
     steps: [..] Regex_Step;
 }
 
-get_codepoint :: (p: *string) -> int, int {
-    char, char_size := character_utf8_to_utf32(p.data, p.count);
+get_codepoint :: inline (p: *string) -> int, int {
+    char, char_size := inline character_utf8_to_utf32(p.data, p.count);
     return char, char_size;
 }
 
-next_codepoint :: (p: *string, size := -1) {
+next_codepoint :: inline (p: *string, size := -1) {
     cp_size := size;
-    if cp_size == -1 then _, cp_size = character_utf8_to_utf32(p.data, p.count);
-    advance(p, cp_size);
+    if cp_size == -1 then _, cp_size = inline character_utf8_to_utf32(p.data, p.count);
+    inline advance(p, cp_size);
 }
-
-
-
-// @TODO: performance and memory improvements
-// The following pattern takes a lot of time and memory:
-//    ^(?=.*\\d)(?=.*[A-Z])(?=.*[a-z])(?=.*[^\\w\\d\\s:])([^\\s]){8,16}$
-// with the following input text:
-//    ^(?=.*\\d)(?=.*[A-Z])(?=.*[a-z])(?=.*[^\\w\\d\\s:])([^\\s]){8,16}$
-//
 

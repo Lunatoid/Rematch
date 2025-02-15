@@ -29,12 +29,10 @@ match :: (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Rege
     state.p_base = text;
     state.flags = regex.flags;
     state.max_capture_index = regex.max_capture_index;
-    state.max_groups = regex.max_groups;
     state.options = options;
 
-    state.allocator = .{ proc=flat_pool_allocator_proc, data=*state.pool };
-    init(*state.pool, reserve=state.options.memory_limit);
-    defer fini(*state.pool);
+    state.tracking_allocator.allocator = context.allocator;
+    state.allocator = .{tracking_allocator_proc, *state.tracking_allocator};
 
     p_start := text;
     p := *text;
@@ -42,8 +40,7 @@ match :: (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Rege
     if regex.flags & .STICKY then advance(p, regex.last_index);
 
     while p.count > 0 {
-        defer reset(*state.pool);
-
+        defer state.tracking_allocator.high_water_mark = 0;
         old_p := p.*;
 
         if p.data[0] == #char "\n" && !(regex.flags & .MULTILINE) {
@@ -51,6 +48,7 @@ match :: (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Rege
         }
 
         result, captures := try_match(*state, *regex.root, p.*);
+        defer array_free(captures,, state.allocator);
 
         if result == .MATCH {
             // Successful match!
@@ -126,8 +124,7 @@ Group_State :: struct {
     quantifier: Regex_Quantifier;
 
     group_type: Group_Type;
-    bt_count: int;
-    current_quantifier := 0;
+    current_quantifier: int;
 }
 
 Regex_State :: struct {
@@ -137,7 +134,7 @@ Regex_State :: struct {
     max_capture_index: int;
     options: Match_Options;
 
-    pool: Flat_Pool;
+    tracking_allocator: Tracking_Allocator;
     allocator: Allocator;
 }
 
@@ -213,12 +210,12 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
             get_state().step_index += 1;
             defer get_state().step_index -= 1;
 
-            add_group_to_stack(group_stack, *step.disjunction.right, p.*, step.quantifier, .GROUP, bt_stack.*);
+            add_group_to_stack(group_stack, *step.disjunction.right, p.*, step.quantifier, .GROUP);
             peek_pointer(group_stack.*).step_index = -1; // -1 because rewind increments the step index
-            create_backtrack_state(bt_stack, group_stack.*, captures.*, p.*, regex.allocator);
+            create_backtrack_state(bt_stack, group_stack.*, captures.*, p.*);
 
             group_stack.count -= 1;
-            add_group_to_stack(group_stack, *step.disjunction.left, p.*, step.quantifier, .GROUP, bt_stack.*);
+            add_group_to_stack(group_stack, *step.disjunction.left, p.*, step.quantifier, .GROUP);
 
             return .NEW_GROUP;
 
@@ -243,7 +240,7 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
             return .FAILURE;
 
         case .GROUP;
-            add_group_to_stack(group_stack, *step.group, p.*, step.quantifier, .GROUP, bt_stack.*);
+            add_group_to_stack(group_stack, *step.group, p.*, step.quantifier, .GROUP);
             return .NEW_GROUP;
 
         case .BACKREFERENCE;
@@ -325,7 +322,7 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
                     } else {
                         group_type = .LOOKAROUND;
                     }
-                    add_group_to_stack(group_stack, *step.assertion.group, p.*, step.quantifier, group_type, bt_stack.*);
+                    add_group_to_stack(group_stack, *step.assertion.group, p.*, step.quantifier, group_type);
                     return .NEW_GROUP;
 
                 case .LOOKBEHIND;
@@ -355,12 +352,12 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
                     // @TODO: we can try to at least match the first step of the LOOKBEHIND group
                     // to decide whether to create backtrack state for it.
                     for min_steps..max_steps {
-                        add_group_to_stack(group_stack, *step.assertion.group, p_group_start, step.quantifier, group_type, bt_stack.*);
+                        add_group_to_stack(group_stack, *step.assertion.group, p_group_start, step.quantifier, group_type);
 
                         if it + 1 <= max_steps {
                             peek_pointer(group_stack.*).step_index = -1;
 
-                            create_backtrack_state(bt_stack, group_stack.*, captures.*, p.*, regex.allocator);
+                            create_backtrack_state(bt_stack, group_stack.*, captures.*, p.*);
                             bt := peek_pointer(bt_stack.*);
                             bt.group_stack[bt.group_stack.count - 2].step_index += 1;
 
@@ -400,30 +397,33 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
     return .FAILURE;
 }
 
-add_group_to_stack :: (group_stack: *[..] Group_State, group: *Regex_Group, p: string,
-                       quantifier: Regex_Quantifier, group_type: Group_Type,
-                       bt_stack: [] Backtrack_State) {
-    state := array_add(group_stack);
+add_group_to_stack :: inline (group_stack: *[..] Group_State, group: *Regex_Group, p: string,
+                       quantifier: Regex_Quantifier, group_type: Group_Type) {
+    state: Group_State;
     state.p_group_start = p;
     state.group = group;
     state.group_type = group_type;
     state.quantifier = quantifier;
-    state.bt_count = bt_stack.count;
-
     state.step_index = 0;
+
+    array_add(group_stack, state);
 }
 
-create_backtrack_state :: (bt_stack: *[..] Backtrack_State, group_stack: [..] Group_State, matches: [..] Regex_Capture, p: string, allocator: Allocator) {
-    state := array_add(bt_stack);
+create_backtrack_state :: (bt_stack: *[..] Backtrack_State, group_stack: [..] Group_State, captures: [..] Regex_Capture, p: string) {
+    state: Backtrack_State;
     state.p = p;
 
-    state.captures.allocator = allocator;
-    array_resize(*state.captures, matches.count, initialize=false);
-    for matches state.captures[it_index] = it;
+    state.captures.allocator = captures.allocator;
+    array_reserve(*state.captures, captures.allocated);
+    memcpy(state.captures.data, captures.data, size_of(Regex_Capture) * captures.count);
+    state.captures.count = captures.count;
 
-    state.group_stack.allocator = allocator;
-    array_resize(*state.group_stack, group_stack.count, initialize=false);
-    for group_stack state.group_stack[it_index] = it;
+    state.group_stack.allocator = group_stack.allocator;
+    array_reserve(*state.group_stack, group_stack.allocated);
+    memcpy(state.group_stack.data, group_stack.data, size_of(Group_State) * group_stack.count);
+    state.group_stack.count = group_stack.count;
+
+    array_add(bt_stack, state);
 }
 
 Match_Result :: enum {
@@ -435,44 +435,27 @@ Match_Result :: enum {
 
 try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) -> Match_Result, [] Regex_Capture {
     bt_stack: [..] Backtrack_State;
-    bt_stack.allocator = regex.allocator;
+    // bt_stack.allocator = regex.allocator;
+    bt_stack.allocator = temp;
 
     captures: [..] Regex_Capture;
     captures.allocator = regex.allocator;
 
     group_stack: [..] Group_State;
     group_stack.allocator = regex.allocator;
+    add_group_to_stack(*group_stack, initial_group, text, .{}, .GROUP);
+
+    defer {
+        array_free(group_stack);
+
+        for bt_stack {
+            array_free(it.group_stack);
+            array_free(it.captures);
+        }
+        array_free(bt_stack);
+    }
 
     p := *text;
-
-    array_reserve(*group_stack, regex.max_groups);
-
-    add_group_to_stack(*group_stack, initial_group, text, .{}, .GROUP, bt_stack);
-
-    add_or_update_capture :: (captures: *[..] Regex_Capture, group: *Regex_Group, match: string) {
-        found := false;
-        for * captures.* {
-            if it.index == group.index {
-                it.text = match;
-                it.name = group.name;
-                found = true;
-                break;
-            }
-        }
-
-        if !found {
-            array_add(captures, .{ index=group.index, name=group.name, text=match });
-        }
-    }
-
-    remove_capture :: (captures: *[..] Regex_Capture, index: int) {
-        for * captures.* {
-            if it.index == index {
-                remove it;
-                break;
-            }
-        }
-    }
 
     INVALID_STATE_INDEX :: -1;
     dummy_state: Group_State;
@@ -481,11 +464,10 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
 
     while group_stack.count > 0 {
         {
-            MEMORY_FULL_MARGIN :: 1024;
-            current := regex.pool.current_point - regex.pool.memory_base;
-            limit := regex.pool.address_limit - regex.pool.memory_base;
+            MEMORY_FULL_MARGIN :: 64;
+            current := regex.tracking_allocator.current_allocated;
 
-            if current + MEMORY_FULL_MARGIN > limit {
+            if current + MEMORY_FULL_MARGIN > regex.options.memory_limit {
                 return .OUT_OF_MEMORY, .[];
             }
         }
@@ -516,6 +498,9 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
                 if get_state().group_type == .LOOKAROUND || get_state().group_type == .NEGATED_LOOKAROUND {
                     p.* = get_state().p_group_start;
                 }
+
+                array_free(group_stack);
+                array_free(captures);
 
                 bt := pop(*bt_stack);
                 p.* = bt.p;
@@ -602,7 +587,7 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
                         // Since we already matched in a valid state, create a backtracking state where
                         // we already popped this group.
                         group_stack.count -= 1;
-                        create_backtrack_state(*bt_stack, group_stack, captures, p.*, regex.allocator);
+                        create_backtrack_state(*bt_stack, group_stack, captures, p.*);
 
                         // Rewinding adds 1 to the step index while just popping it does not
                         // so we need to -1 to offset this.
@@ -647,7 +632,7 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
 
         if can_create_backtrack && step.quantifier.min_times == 0 {
             // Create backtrack state for 0 matches
-            create_backtrack_state(*bt_stack, group_stack, captures, p.*, regex.allocator);
+            create_backtrack_state(*bt_stack, group_stack, captures, p.*);
         }
 
         for 1..step.quantifier.max_times {
@@ -661,7 +646,7 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
 
             if can_create_backtrack && match_times >= step.quantifier.min_times {
                 // Save state since we successfully matched
-                create_backtrack_state(*bt_stack, group_stack, captures, p.*, regex.allocator);
+                create_backtrack_state(*bt_stack, group_stack, captures, p.*);
             }
         }
 
@@ -691,6 +676,33 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
 
     return .MATCH, captures;
 }
+
+add_or_update_capture :: (captures: *[..] Regex_Capture, group: *Regex_Group, match: string) {
+    found := false;
+    for * captures.* {
+        if it.index == group.index {
+            it.text = match;
+            it.name = group.name;
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        array_add(captures, .{ index=group.index, name=group.name, text=match });
+    }
+}
+
+remove_capture :: (captures: *[..] Regex_Capture, index: int) {
+    for * captures.* {
+        if it.index == index {
+            remove it;
+            break;
+        }
+    }
+}
+
+#scope_module
 
 count_group_steps :: (group: *Regex_Group, captures: [] Regex_Capture) -> int, int {
     min_steps := 0;
@@ -750,9 +762,8 @@ count_group_steps :: (group: *Regex_Group, captures: [] Regex_Capture) -> int, i
                     min_steps += capture.text.count;
                     max_steps += capture.text.count;
                 }
-
         }
     }
+
     return min_steps, max_steps;
 }
-

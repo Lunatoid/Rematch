@@ -76,7 +76,6 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
 
     last_char := 0;
     while p.count > 0 {
-        regex.max_groups = max(regex.max_groups, group_stack.count);
         char, char_size := get_codepoint(p);
         defer last_char = char;
 

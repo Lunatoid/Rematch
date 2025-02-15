@@ -135,8 +135,7 @@ Regex_State :: struct {
     flags: Regex_Flags;
     p_base: string;
     max_capture_index: int;
-    max_groups: int;
-    options: Regex_Match_Options;
+    options: Match_Options;
 
     pool: Flat_Pool;
     allocator: Allocator;

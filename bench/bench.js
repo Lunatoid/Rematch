@@ -13,7 +13,8 @@ const performTests = (file) => {
             const { text, matches } = input;
 
             const startTime = process.hrtime.bigint();
-            text.matchAll(regex);
+            // Need to turn it into an array, otherwise it's just a (lazy) iterator
+            const results = [...text.matchAll(regex)]; 
             const endTime = process.hrtime.bigint();
             totalTime += endTime - startTime;
         });

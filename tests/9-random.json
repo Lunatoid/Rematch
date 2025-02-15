@@ -18933,6 +18933,78 @@
         ]
       }
     ]
+  },
+  {
+    "pattern": "^(?=.*\\d)(?=.*[A-Z])(?=.*[a-z])(?=.*[^\\w\\d\\s:])([^\\s]){8,16}$",
+    "inputs": [
+      {
+        "text": "/^(?=.*\\d)(?=.*[A-Z])(?=.*[a-z])(?=.*[^\\w\\d\\s:])([^\\s]){8,16}$/gm",
+        "matches": []
+      },
+      {
+        "text": "_}24I:9t58Tu?m@e",
+        "matches": [
+          [
+            "_}24I:9t58Tu?m@e",
+            "e"
+          ]
+        ]
+    },
+    {
+      "text": "|YlzEc|1",
+      "matches": [
+        [
+          "|YlzEc|1",
+          "1"
+        ]
+      ]
+    },
+    {
+      "text": "#m_4xF%t\"Bu5jeb$",
+      "matches": [
+        [
+          "#m_4xF%t\"Bu5jeb$",
+          "$"
+        ]
+      ]
+    },
+    {
+      "text": "Password1",
+      "matches": []
+    },
+    {
+      "text": "12345678aA",
+      "matches": []
+    },
+    {
+      "text": "^@},^@},^@},",
+      "matches": []
+    },
+    {
+      "text": "12345678aA@ ",
+      "matches": []
+    },
+    {
+      "text": "12345678 aA@",
+      "matches": []
+    },
+    {
+      "text": " 12345678aA@",
+      "matches": []
+    },
+    {
+      "text": "AbCdEfGhIi",
+      "matches": []
+    },
+    {
+      "text": "abcdefgh123",
+      "matches": []
+    },
+    {
+      "text": "ABCDEFGH1234",
+      "matches": []
+    }
+    ]
   }
 ]
 

@@ -6,16 +6,14 @@ Regex_Match :: struct {
 
 // `memory_limit` must be at least 1 page size. It will count as OUT_OF_MEMORY if there is less than 1024 bytes available.
 // If `time_limit_ms` is greater than 0 it will abort if matching the text takes longer than that.
-Regex_Match_Options :: struct {
+Match_Options :: struct {
     DEFAULT_MEMORY_LIMIT :: 256 * 1024 * 1024;
 
     memory_limit  := DEFAULT_MEMORY_LIMIT;
     time_limit_ms := 0;
 }
 
-REGEX_MATCH_DEFAULT_MEMORY :: 256 * 1024 * 1024;
-
-match :: (regex: *Regex, text: string, options := Regex_Match_Options.{}) -> [..] Regex_Match, Match_Result {
+match :: (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Regex_Match, Match_Result {
     root_group: Regex_Step;
     root_group.symbol = .GROUP;
     root_group.group = regex.root;

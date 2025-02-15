@@ -21,7 +21,7 @@ Features:
 // allocator.
 //
 
-replace :: (text: string, find_pattern: string, replace_pattern: string, options := Regex_Match_Options.{}) -> string, bool {
+replace :: (text: string, find_pattern: string, replace_pattern: string, options := Match_Options.{}) -> string, bool {
     regex, success := compile(find_pattern, .MULTILINE);
     defer deinit(*regex);
 
@@ -32,7 +32,7 @@ replace :: (text: string, find_pattern: string, replace_pattern: string, options
     return new_text, occurrences > 0;
 }
 
-replace :: (text: string, find_regex: *Regex, replace_pattern: string, options := Regex_Match_Options.{}) -> string, bool {
+replace :: (text: string, find_regex: *Regex, replace_pattern: string, options := Match_Options.{}) -> string, bool {
     old_flags := find_regex.flags;
     defer find_regex.flags = old_flags;
 
@@ -44,7 +44,7 @@ replace :: (text: string, find_regex: *Regex, replace_pattern: string, options :
     return new_text, occurrences > 0;
 }
 
-replace_all :: (text: string, find_pattern: string, replace_pattern: string, options := Regex_Match_Options.{}) -> string, int {
+replace_all :: (text: string, find_pattern: string, replace_pattern: string, options := Match_Options.{}) -> string, int {
     regex, success := compile(find_pattern, .GLOBAL | .MULTILINE);
     defer deinit(*regex);
 
@@ -55,7 +55,7 @@ replace_all :: (text: string, find_pattern: string, replace_pattern: string, opt
     return new_text, occurrences;
 }
 
-replace_all :: (text: string, find_regex: *Regex, replace_pattern: string, options := Regex_Match_Options.{}) -> string, int {
+replace_all :: (text: string, find_regex: *Regex, replace_pattern: string, options := Match_Options.{}) -> string, int {
     matches, match_result := match(find_regex, text);
     defer free_matches(matches);
 

@@ -121,7 +121,7 @@ if match_result == .MATCH {
 
 Setting match constraints:
 ```go
-options := Regex_Match_Options.{
+options := Rematch.Match_Options.{
     memory_limit = 16 * 1024 * 1024,
     time_limit_ms = 5000,
 };

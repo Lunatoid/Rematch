@@ -41,10 +41,12 @@ main :: () {
         return 0;
     });
 
+    log("Starting tests...");
+    total_time: Apollo_Time;
     for files {
-        perform_tests(it);
+        total_time += perform_tests(it);
     }
-    log("\n");
+    log("\nFinished in % μs!", to_microseconds(total_time));
 }
 
 test_single :: (pattern: string, text: string, flags: Rematch.Regex_Flags = .GLOBAL) {
@@ -69,13 +71,15 @@ test_single :: (pattern: string, text: string, flags: Rematch.Regex_Flags = .GLO
     Rematch.deinit(*r);
 }
 
-perform_tests :: (path: string) {
+perform_tests :: (path: string) -> Apollo_Time {
     tests_json, success := json_from_file(path,, temp);
     defer json_free(tests_json);
 
+    total_time: Apollo_Time;
+
     if !success {
         log_error("Failed to open '%'", path);
-        return;
+        return .{};
     }
 
     log("\n--- % ---\n\n", path);
@@ -103,17 +107,22 @@ perform_tests :: (path: string) {
 
         pass := true;
         for input, input_index: test_case.inputs {
+            start_time := current_time_monotonic();
             matches, match_result := Rematch.match(*regex, input.text);
+            end_time := current_time_monotonic();
+
+            total_time += end_time - start_time;
+
             defer Rematch.free_matches(matches);
 
             if match_result == .OUT_OF_MEMORY {
-                log("=> %", pattern);
+                log("=> %. %", test_index, pattern);
                 log("  > %", input.text);
                 print("  ! ");
                 print_color("Out of memory!\n", color=.RED);
                 pass = false;
             } else if match_result == .OUT_OF_TIME {
-                log("=> %", pattern);
+                log("=> %. %", test_index, pattern);
                 log("  > %", input.text);
                 print("  ! ");
                 print_color("Out of time!\n", color=.RED);
@@ -128,7 +137,7 @@ perform_tests :: (path: string) {
                 received := matches[match_index].captures;
 
                 if expected.count != received.count {
-                    log("=> %", pattern);
+                    log("=> %. %", test_index, pattern);
                     log("  ! Mismatch in match count, expected %, received %", expected.count, received.count);
                     pass = false;
                 }
@@ -143,7 +152,7 @@ perform_tests :: (path: string) {
                 }
 
                 if !capture_ok {
-                    log("=> %", pattern);
+                    log("=> %. %", test_index, pattern);
                     log("  > %", input.text);
                     log("  ! Received: %", received);
                     log("  ! Expected: %", expected);
@@ -153,7 +162,7 @@ perform_tests :: (path: string) {
             }
 
             for min_matches..matches.count-1 {
-                log("=> %", pattern);
+                log("=> %. %", test_index, pattern);
                 log("  > %", input.text);
                 log("  ! Received: %", matches[it].captures);
                 log("  ! Expected: <none>");
@@ -161,7 +170,7 @@ perform_tests :: (path: string) {
             }
 
             for min_matches..input.matches.count-1 {
-                log("=> %", pattern);
+                log("=> %. %", test_index, pattern);
                 log("  > %", input.text);
                 log("  ! Received: <none>");
                 log("  ! Expected: %", input.matches[it]);
@@ -178,5 +187,7 @@ perform_tests :: (path: string) {
         print("  : ");
         print_color("All Pass!\n", color=.GREEN);
     }
+
+    return total_time;
 }
 

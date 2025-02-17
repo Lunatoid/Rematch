@@ -48,7 +48,7 @@ match :: (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Rege
         }
 
         result, captures := try_match(*state, *regex.root, p.*);
-        defer array_free(captures,, state.allocator);
+        defer array_free(captures);
 
         if result == .MATCH {
             // Successful match!
@@ -105,10 +105,27 @@ deinit :: (regex: *Regex) {
 
 #scope_file
 
+Backtrack_Ownership :: enum_flags {
+    OWNS_GROUP_STACK :: 1 << 0;
+    OWNS_CAPTURES    :: 1 << 1;
+}
+
 Backtrack_State :: struct {
     p: string;
     group_stack: [..] Group_State;
     captures: [..] Regex_Capture;
+    ownership: Backtrack_Ownership = 0;
+
+    // A single step can generate multiple backtracking state.
+    // \w{2,8} will create backtracking state each time it matches between 2 and 8 times.
+    // To avoid then having 6 separate states, we take the single state and increase the
+    // repeat count. On rewind, once the repeat count drops to 0, we can pop this state.
+    repeat_count := 1;
+
+    // For greedy quantifiers we want to match latest-to-earliest, but for lazy quantifiers
+    // we want to go earliest-to-latest. If this is >0, it will do backwards_count - repeat_count
+    // so we can iterate the other way.
+    backwards_count := 0;
 }
 
 Group_Type :: enum {
@@ -197,12 +214,6 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
             }
 
         case .DISJUNCTION;
-            group: Regex_Step;
-            group.symbol = .GROUP;
-            group.group = step.disjunction.left;
-
-            old_p := p.*;
-
             // Normally if a group gets matched, the step index will get incremented
             // +1 before switching to the newest group on top of the stack.
             // This will happen for the left side automatically once we exit this function
@@ -410,18 +421,48 @@ add_group_to_stack :: inline (group_stack: *[..] Group_State, group: *Regex_Grou
 }
 
 create_backtrack_state :: (bt_stack: *[..] Backtrack_State, group_stack: [..] Group_State, captures: [..] Regex_Capture, p: string) {
+    last_captures: [..] Regex_Capture;
+    last_group_stack: [..] Group_State;
+
+    for < bt_stack.* {
+        if last_captures.data == null && it.ownership & .OWNS_CAPTURES then last_captures = it.captures;
+        if last_group_stack.data == null && it.ownership & .OWNS_GROUP_STACK then last_group_stack = it.group_stack;
+
+        if last_captures.data != null && last_group_stack.data != null then break;
+    }
+
     state: Backtrack_State;
     state.p = p;
 
-    state.captures.allocator = captures.allocator;
-    array_reserve(*state.captures, captures.allocated);
-    memcpy(state.captures.data, captures.data, size_of(Regex_Capture) * captures.count);
-    state.captures.count = captures.count;
+    if last_captures.data && last_captures.count >= captures.count {
+        if memcmp(last_captures.data, captures.data, captures.count * size_of(Regex_Capture)) == 0 {
+            state.captures = last_captures;
+            state.captures.count = captures.count;
+        }
+    }
 
-    state.group_stack.allocator = group_stack.allocator;
-    array_reserve(*state.group_stack, group_stack.allocated);
-    memcpy(state.group_stack.data, group_stack.data, size_of(Group_State) * group_stack.count);
-    state.group_stack.count = group_stack.count;
+    if state.captures.count == 0 && captures.count > 0 {
+        state.ownership |= .OWNS_CAPTURES;
+        state.captures.allocator = captures.allocator;
+        array_reserve(*state.captures, captures.allocated);
+        memcpy(state.captures.data, captures.data, size_of(Regex_Capture) * captures.count);
+        state.captures.count = captures.count;
+    }
+
+    if last_group_stack.data && last_group_stack.count >= group_stack.count {
+        if memcmp(last_group_stack.data, group_stack.data, group_stack.count * size_of(Group_State)) == 0 {
+            state.group_stack = last_group_stack;
+            state.group_stack.count = group_stack.count;
+        }
+    }
+
+    if state.group_stack.count == 0 && group_stack.count > 0 {
+        state.ownership |= .OWNS_GROUP_STACK;
+        state.group_stack.allocator = group_stack.allocator;
+        array_reserve(*state.group_stack, group_stack.allocated);
+        memcpy(state.group_stack.data, group_stack.data, size_of(Group_State) * group_stack.count);
+        state.group_stack.count = group_stack.count;
+    }
 
     array_add(bt_stack, state);
 }
@@ -433,9 +474,8 @@ Match_Result :: enum {
     OUT_OF_TIME;
 }
 
-try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) -> Match_Result, [] Regex_Capture {
+try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) -> Match_Result, [..] Regex_Capture {
     bt_stack: [..] Backtrack_State;
-    // bt_stack.allocator = regex.allocator;
     bt_stack.allocator = temp;
 
     captures: [..] Regex_Capture;
@@ -446,12 +486,12 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
     add_group_to_stack(*group_stack, initial_group, text, .{}, .GROUP);
 
     defer {
-        array_free(group_stack);
-
         for bt_stack {
-            array_free(it.group_stack);
-            array_free(it.captures);
+            if it.ownership & .OWNS_CAPTURES then array_free(it.captures);
+            if it.ownership & .OWNS_GROUP_STACK then array_free(it.group_stack);
         }
+
+        array_free(group_stack);
         array_free(bt_stack);
     }
 
@@ -468,13 +508,13 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
             current := regex.tracking_allocator.current_allocated;
 
             if current + MEMORY_FULL_MARGIN > regex.options.memory_limit {
-                return .OUT_OF_MEMORY, .[];
+                return .OUT_OF_MEMORY, captures;
             }
         }
 
         if regex.options.time_limit_ms > 0 {
             curr_time := current_time_monotonic();
-            if curr_time > end_time then return .OUT_OF_TIME, .[];
+            if curr_time > end_time then return .OUT_OF_TIME, captures;
         }
 
         // We used to cache the pointer directly, but if the group stack
@@ -499,21 +539,40 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
                     p.* = get_state().p_group_start;
                 }
 
-                array_free(group_stack);
-                array_free(captures);
-
-                bt := pop(*bt_stack);
+                bt := peek_pointer(bt_stack);
                 p.* = bt.p;
-                group_stack = bt.group_stack;
-                captures = bt.captures;
+
+                advance_amount := bt.repeat_count - 1;
+                if bt.backwards_count > 0 {
+                    advance_amount = bt.backwards_count - bt.repeat_count;
+                }
+
+                advance(p, advance_amount);
+
+                array_reserve(*captures, bt.captures.allocated);
+                memcpy(captures.data, bt.captures.data, size_of(Regex_Capture) * bt.captures.count);
+                captures.count = bt.captures.count;
+
+                array_reserve(*group_stack, bt.group_stack.allocated);
+                memcpy(group_stack.data, bt.group_stack.data, size_of(Group_State) * bt.group_stack.count);
+                group_stack.count = bt.group_stack.count;
+
                 peek_pointer(group_stack).step_index += 1;
                 state_index = INVALID_STATE_INDEX;
+
+                bt.repeat_count -= 1;
+                if bt.repeat_count <= 0 {
+                    if bt.ownership & .OWNS_CAPTURES then array_free(bt.captures);
+                    if bt.ownership & .OWNS_GROUP_STACK then array_free(bt.group_stack);
+                    pop(*bt_stack);
+                }
+
                 return true;
             }
             return false;
         }
 
-        if get_state().step_index < 0 || get_state().step_index >= get_state().group.steps.count || p.count == 0 {
+        if p.count == 0 || get_state().step_index < 0 || get_state().step_index >= get_state().group.steps.count {
             matched_necessary := true;
             new_group := false;
 
@@ -551,9 +610,9 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
             if new_group then continue;
 
             if matched_necessary && get_state().group_type == .NEGATED_LOOKAROUND {
-                // @HACK: rewind twice. First one will simply pop the lookaround, second one will actually rewind.
-                if !rewind() return .NO_MATCH, .[];
-                if !rewind() return .NO_MATCH, .[];
+                // Rewind twice. First one will simply pop the lookaround, second one will actually rewind.
+                if !rewind() return .NO_MATCH, captures;
+                if !rewind() return .NO_MATCH, captures;
                 continue;
             }
 
@@ -597,26 +656,13 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
                         // Remove all captures we made for this group and child groups.
                         // This is necessary because cases like ((cat)|(dog))+ exist
                         // and otherwise in the input "catdog" capture group 2, "cat", stays matched.
-                        remove_group_child_captures :: (captures: *[..] Regex_Capture, group: *Regex_Group) {
-                            if !group.is_non_capturing then remove_capture(captures, group.index);
-                            for group.steps {
-                                if it.symbol == {
-                                    case .GROUP;
-                                        remove_group_child_captures(captures, *it.group);
-
-                                    case .DISJUNCTION;
-                                        remove_group_child_captures(captures, *it.disjunction.left);
-                                        remove_group_child_captures(captures, *it.disjunction.right);
-                                }
-                            }
-                        }
                         remove_group_child_captures(*captures, get_state().group);
                     }
 
                     continue;
                 }
             } else {
-                if !rewind() return .NO_MATCH, .[];
+                if !rewind() return .NO_MATCH, captures;
             }
 
             continue;
@@ -629,10 +675,12 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
         bt_count_before := bt_stack.count;
 
         can_create_backtrack := step.quantifier.min_times != step.quantifier.max_times;
+        bt: *Backtrack_State;
 
         if can_create_backtrack && step.quantifier.min_times == 0 {
             // Create backtrack state for 0 matches
             create_backtrack_state(*bt_stack, group_stack, captures, p.*);
+            bt = peek_pointer(bt_stack);
         }
 
         for 1..step.quantifier.max_times {
@@ -645,19 +693,18 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
             match_times += 1;
 
             if can_create_backtrack && match_times >= step.quantifier.min_times {
-                // Save state since we successfully matched
-                create_backtrack_state(*bt_stack, group_stack, captures, p.*);
+                if !bt {
+                    create_backtrack_state(*bt_stack, group_stack, captures, p.*);
+                    bt = peek_pointer(bt_stack);
+                } else {
+                    bt.repeat_count += 1;
+                }
             }
         }
 
         // If we are lazy, reverse the backtracking state so it is from earliest to latest
-        if !step.quantifier.greedy && bt_stack.count - bt_count_before > 1 {
-            lazy_bts := array_view(bt_stack, bt_count_before);
-            lazy_bts_copy := array_copy(lazy_bts,, temp);
-
-            for < lazy_bts_copy {
-                lazy_bts[lazy_bts.count - 1 - it_index] = it;
-            }
+        if !step.quantifier.greedy && bt {
+            bt.backwards_count = bt.repeat_count;
 
             // Now rewind to the top of the stack (earliest valid matches)
             rewind();
@@ -666,7 +713,7 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
 
         if match_result != .NEW_GROUP {
             if (match_times < step.quantifier.min_times || match_times > step.quantifier.max_times) {
-                if !rewind() return .NO_MATCH, .[];
+                if !rewind() return .NO_MATCH, captures;
                 continue;
             }
         }
@@ -698,6 +745,20 @@ remove_capture :: (captures: *[..] Regex_Capture, index: int) {
         if it.index == index {
             remove it;
             break;
+        }
+    }
+}
+
+remove_group_child_captures :: (captures: *[..] Regex_Capture, group: *Regex_Group) {
+    if !group.is_non_capturing then remove_capture(captures, group.index);
+    for group.steps {
+        if it.symbol == {
+            case .GROUP;
+                remove_group_child_captures(captures, *it.group);
+
+            case .DISJUNCTION;
+                remove_group_child_captures(captures, *it.disjunction.left);
+                remove_group_child_captures(captures, *it.disjunction.right);
         }
     }
 }
@@ -767,3 +828,4 @@ count_group_steps :: (group: *Regex_Group, captures: [] Regex_Capture) -> int, i
 
     return min_steps, max_steps;
 }
+

@@ -116,5 +116,39 @@
         ]
       }
     ]
+  },
+  {
+    "pattern": "(?<=\\d+)\\w+",
+    "inputs": [
+      {
+        "text": "1234wow",
+        "matches": [
+          [
+            "234wow"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(?<=abc|def)bar",
+    "inputs": [
+      {
+        "text": "abcbar",
+        "matches": [
+          [
+            "bar"
+          ]
+        ]
+      },
+      {
+        "text": "defbar",
+        "matches": [
+          [
+            "bar"
+          ]
+        ]
+      }
+    ]
   }
 ]

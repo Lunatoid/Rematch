@@ -357,25 +357,20 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
                     p_group_start := p.*;
 
                     // Now create backtracking states for the min-max range
-                    p.data -= min_steps;
-                    p.count += min_steps;
+                    p.data -= max_steps;
+                    p.count += max_steps;
 
-                    // @TODO: we can try to at least match the first step of the LOOKBEHIND group
-                    // to decide whether to create backtrack state for it.
-                    for min_steps..max_steps {
-                        add_group_to_stack(group_stack, *step.assertion.group, p_group_start, step.quantifier, group_type);
+                    add_group_to_stack(group_stack, *step.assertion.group, p_group_start, step.quantifier, group_type);
 
-                        if it + 1 <= max_steps {
-                            peek_pointer(group_stack.*).step_index = -1;
+                    if max_steps > min_steps {
+                        // :LookBehindBandaid
+                        // @TODO: this eventually causes a -1 in the step index somewhere which was bandaided below.
+                        bt_p := p;
+                        advance(bt_p);
+                        create_backtrack_state(bt_stack, group_stack.*, captures.*, bt_p.*);
 
-                            create_backtrack_state(bt_stack, group_stack.*, captures.*, p.*);
-                            bt := peek_pointer(bt_stack.*);
-                            bt.group_stack[bt.group_stack.count - 2].step_index += 1;
-
-                            group_stack.count -= 1;
-                            p.data -= 1;
-                            p.count += 1;
-                        }
+                        bt := peek_pointer(bt_stack.*);
+                        bt.group_stack[bt.group_stack.count - 2].step_index += 1;
                     }
 
                     return .NEW_GROUP;
@@ -647,11 +642,19 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
                         // we already popped this group.
                         group_stack.count -= 1;
                         create_backtrack_state(*bt_stack, group_stack, captures, p.*);
+                        group_stack.count += 1;
 
                         // Rewinding adds 1 to the step index while just popping it does not
                         // so we need to -1 to offset this.
-                        peek_pointer(peek_pointer(bt_stack).group_stack).step_index -= 1;
-                        group_stack.count += 1;
+                        bt_group := peek_pointer(peek_pointer(bt_stack).group_stack);
+                        bt_group.step_index = max(-1, bt_group.step_index - 1); // :LookBehindBandaid
+
+                        // @TODO: find out why sometimes this is already at -1... It shouldn't happen,
+                        // but can be bandaided by the max(-1, ...) above.
+                        #if false {
+                            orig_step_index := bt_group.step_index;
+                            assert(bt_group.step_index != orig_step_index - 1);
+                        }
 
                         // Remove all captures we made for this group and child groups.
                         // This is necessary because cases like ((cat)|(dog))+ exist

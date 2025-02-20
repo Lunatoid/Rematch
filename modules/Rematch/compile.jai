@@ -1,12 +1,11 @@
 
 // @TODO: currently the Regex compiler is too lax. It allows for patterns like "foo^" or similar
 // things that is not actually allowed
-compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
+compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
     regex: Regex;
     regex.flags = flags;
-    regex.pattern = copy_string(pattern);
 
-    group_stack: [..] *Regex_Group;
+    group_stack: [..] *Group;
     group_stack.allocator = temp;
     array_add(*group_stack, *regex.root);
 
@@ -17,21 +16,47 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
     if flags & .MULTILINE then regex.root.flags |= .MULTILINE;
     if flags & .DOT_ALL then regex.root.flags |= .DOT_ALL;
 
-    add_step :: (step: Regex_Step) -> *Regex_Step #expand {
+    add_step :: (step: Step) -> *Step #expand {
         array_add(*peek(group_stack).steps, step);
         return peek_pointer(peek(group_stack).steps);
     }
 
-    add_literal :: (char: int) #expand {
-        step: Regex_Step;
-        step.symbol = .LITERAL;
-        step.literal.char = char;
+    add_literal :: (char: int, try_collapse := true) #expand {
+        added := false;
+        if try_collapse && group_stack.count > 0 && peek(group_stack).steps.count > 0 {
+            last_step := peek_pointer(peek(group_stack).steps);
 
-        array_add(*peek(group_stack).steps, step);
+            if last_step.symbol == .LITERAL &&
+               last_step.quantifier.min_times == 1 && last_step.quantifier.max_times == 1 &&
+               last_step.literal.count + 4 < last_step.literal.chars.count {
+                added = true;
+
+                str: string;
+                str.data = last_step.literal.chars.data + last_step.literal.count;
+                str.count = 0;
+
+                character_utf32_to_utf8(xx char, *str);
+                last_step.literal.count += str.count;
+            }
+        }
+
+        if !added {
+            step: Step;
+            step.symbol = .LITERAL;
+
+            str: string;
+            str.data = step.literal.chars.data;
+            str.count = 0;
+
+            character_utf32_to_utf8(xx char, *str);
+            step.literal.count += str.count;
+
+            array_add(*peek(group_stack).steps, step);
+        }
     }
 
-    add_char_class :: (negated: bool, chars: ..Regex_Step.char_class.Char_Class) #expand {
-        step: Regex_Step;
+    add_char_class :: (negated: bool, chars: ..Step.char_class.Char_Class) #expand {
+        step: Step;
         step.symbol = .CHAR_CLASS;
 
         step.char_class.negated = negated;
@@ -43,7 +68,7 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
     }
 
     add_backreference :: (index: int) #expand {
-        step: Regex_Step;
+        step: Step;
         step.symbol = .BACKREFERENCE;
         step.backreference.by_index = true;
         step.backreference.index = index;
@@ -52,7 +77,7 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
     }
 
     add_backreference :: (name: string) #expand {
-        step: Regex_Step;
+        step: Step;
         step.symbol = .BACKREFERENCE;
         step.backreference.by_index = false;
         step.backreference.name = name;
@@ -60,8 +85,8 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
         array_add(*peek(group_stack).steps, step);
     }
 
-    add_assertion :: (type: Regex_Assertion_Type, negated: bool) -> *Regex_Group #expand {
-        step: Regex_Step;
+    add_assertion :: (type: Assertion_Type, negated: bool) -> *Group #expand {
+        step: Step;
         step.symbol = .ASSERTION;
         step.assertion.type = type;
         step.assertion.negated = negated;
@@ -71,8 +96,30 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
         return *last_step.assertion.group;
     }
 
-    p_base := regex.pattern;
-    p := *p_base;
+    break_out_last_literal :: () #expand {
+        last_step := peek_pointer(peek(group_stack).steps);
+        if last_step.symbol == .LITERAL && last_step.literal.count > 1 {
+
+            str: string;
+            str.data = last_step.literal.chars.data;
+            str.count = last_step.literal.count;
+
+            end := str.data + str.count;
+            cursor := end - 1;
+
+            // Seek backwards to the first character that is <127
+            while ((cursor.* & 0xC0) == 0x80) && (cursor > str.data) {
+                cursor -= 1;
+            }
+
+            char, char_size := character_utf8_to_utf32(cursor, end - cursor);
+            last_step.literal.count -= char_size;
+
+            add_literal(char, false);
+        }
+    }
+
+    p := *pattern;
 
     last_char := 0;
     while p.count > 0 {
@@ -84,11 +131,13 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
                 add_step(.{ symbol=.WILDCARD });
 
             case #char "*";
+                break_out_last_literal();
                 last_step := peek_pointer(peek(group_stack).steps);
                 last_step.quantifier.min_times = 0;
                 last_step.quantifier.max_times = S64_MAX;
 
             case #char "+";
+                break_out_last_literal();
                 last_step := peek_pointer(peek(group_stack).steps);
                 last_step.quantifier.min_times = 1;
                 last_step.quantifier.max_times = S64_MAX;
@@ -100,7 +149,7 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
                 group := peek(group_stack);
                 pop(*group_stack);
 
-                alt_group: Regex_Group;
+                alt_group: Group;
                 alt_group.is_non_capturing = group.is_non_capturing;
                 alt_group.index = group.index;
 
@@ -110,6 +159,7 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
                 alt.disjunction.left.is_non_capturing = true;
 
                 alt.disjunction.right.index = alt.disjunction.left.index;
+                alt.disjunction.right.is_non_capturing = true;
                 if regex.flags & .FOLD_GROUPS then group_index = alt.disjunction.left.index;
 
                 group.* = alt_group;
@@ -272,6 +322,7 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
                 max := S64_MAX;
                 if max_str.count > 0 then max = to_integer(max_str);
 
+                break_out_last_literal();
                 last_step := peek_pointer(peek(group_stack).steps);
                 last_step.quantifier.min_times = min;
                 last_step.quantifier.max_times = max;
@@ -287,7 +338,7 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
                     advance(p);
                 }
 
-                chars: [..] Regex_Step.char_class.Char_Class;
+                chars: [..] Step.char_class.Char_Class;
                 chars.allocator = temp;
 
                 while p.data[0] != #char "]" {
@@ -352,10 +403,12 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
                     case #char "+"; #through;
                     case #char "?"; #through;
                     case #char "}";
+                        break_out_last_literal();
                         last_step := peek_pointer(peek(group_stack).steps);
                         last_step.quantifier.greedy = false;
 
                     case;
+                        break_out_last_literal();
                         last_step := peek_pointer(peek(group_stack).steps);
                         last_step.quantifier.min_times = 0;
                         last_step.quantifier.max_times = 1;
@@ -418,11 +471,13 @@ compile :: (pattern: string, flags := Regex_Flags.NONE) -> Regex, bool {
                         // Roll back so we're aligned (there are 2 consumes below)
                         p.data -= 2;
                         p.count += 2;
+
                     case;
                         escape, parsed_escape := parse_escape(p);
 
                         if parsed_escape {
                             add_literal(escape);
+
 
                             // Roll back so we're aligned (there are 2 consumes below)
                             p.data -= 2;
@@ -552,14 +607,14 @@ parse_escape :: (p: *string) -> int, bool {
 
 MAX_CHAR :: S32_MAX;
 
-WORD_CHAR_CLASS :: Regex_Step.char_class.Char_Class.[
+WORD_CHAR_CLASS :: Step.char_class.Char_Class.[
     .{ #char "a", #char "z" },
     .{ #char "A", #char "Z" },
     .{ #char "0", #char "9" },
     .{ #char "_", #char "_" },
 ];
 
-NEGATED_WORD_CHAR_CLASS :: Regex_Step.char_class.Char_Class.[
+NEGATED_WORD_CHAR_CLASS :: Step.char_class.Char_Class.[
     .{ 0, 47 },
     .{ 58, 64 },
     .{ 91, 94 },
@@ -567,16 +622,16 @@ NEGATED_WORD_CHAR_CLASS :: Regex_Step.char_class.Char_Class.[
     .{ 123, MAX_CHAR },
 ];
 
-DIGIT_CHAR_CLASS :: Regex_Step.char_class.Char_Class.[
+DIGIT_CHAR_CLASS :: Step.char_class.Char_Class.[
     .{ #char "0", #char "9" }
 ];
 
-NEGATED_DIGIT_CHAR_CLASS :: Regex_Step.char_class.Char_Class.[
+NEGATED_DIGIT_CHAR_CLASS :: Step.char_class.Char_Class.[
     .{ 0, 47 },
     .{ 58, MAX_CHAR },
 ];
 
-WHITESPACE_CHAR_CLASS :: Regex_Step.char_class.Char_Class.[
+WHITESPACE_CHAR_CLASS :: Step.char_class.Char_Class.[
     .{ #char " ", #char " " },
     .{ #char "\n", #char "\n" },
     .{ #char "\r", #char "\r" },
@@ -604,7 +659,7 @@ WHITESPACE_CHAR_CLASS :: Regex_Step.char_class.Char_Class.[
     .{ #char "\ufeff", #char "\ufeff" },
 ];
 
-NEGATED_WHITESPACE_CHAR_CLASS :: Regex_Step.char_class.Char_Class.[
+NEGATED_WHITESPACE_CHAR_CLASS :: Step.char_class.Char_Class.[
     .{ 0, 8 },
     .{ 11, 12 },
     .{ 15, 31 },

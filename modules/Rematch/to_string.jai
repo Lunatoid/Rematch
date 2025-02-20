@@ -11,7 +11,7 @@ to_string :: (regex: *Regex) -> string {
 
 #scope_file
 
-step_to_string :: (builder: *String_Builder, step: *Regex_Step) {
+step_to_string :: (builder: *String_Builder, step: *Step) {
     print_utf32 :: (char: int) #expand {
         codepoint: u32;
         codepoint_str: string;
@@ -62,7 +62,10 @@ step_to_string :: (builder: *String_Builder, step: *Regex_Step) {
 
     if step.symbol == {
         case .LITERAL;
-            print_utf32(step.literal.char);
+            str: string;
+            str.data = step.literal.chars.data;
+            str.count = step.literal.count;
+            append(builder, str);
 
         case .WILDCARD;
             append(builder, #char ".");

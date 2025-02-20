@@ -64,7 +64,7 @@ String :: #import "String";
 #load "to_string.jai";
 #load "allocator.jai";
 
-Regex_Flags :: enum_flags {
+Flags :: enum_flags {
     NONE :: 0;
     GLOBAL           :: (1 << 0);
     CASE_INSENSITIVE :: (1 << 1);
@@ -78,15 +78,15 @@ Regex_Flags :: enum_flags {
 Regex :: struct {
     total_steps := 0;
     last_index := 0;
-    flags: Regex_Flags;
-    root: Regex_Group;
+    flags: Flags;
+    root: Group;
     pattern: string;
     max_capture_index: int;
 }
 
 #scope_module
 
-Regex_Symbol :: enum {
+Symbol :: enum {
     // Characters:
     WILDCARD; // .
 
@@ -103,7 +103,7 @@ Regex_Symbol :: enum {
     ASSERTION; // \b \B (?=Foo)
 }
 
-Regex_Assertion_Type :: enum {
+Assertion_Type :: enum {
     NONE;
     WORD_BOUNDARY; // \b \B
     LOOKAHEAD;     // (?=Foo) (?!Foo)
@@ -112,70 +112,70 @@ Regex_Assertion_Type :: enum {
     ANCHOR_END;    // $
 }
 
-Regex_Step :: struct {
-    symbol: Regex_Symbol;
+Step :: struct {
+    symbol: Symbol;
 
-    literal: struct {
-        char: int;
-    };
+    quantifier: Quantifier;
 
-    quantifier: Regex_Quantifier;
+    union {
+        literal: struct {
+            count: int;
+            chars: [128] u8; // Yes we can fit this many without enlarging the union
+        };
 
-    group: Regex_Group;
+        group: Group;
 
-    char_class: struct {
-        Char_Class :: struct {
-            range_start: int;
-            range_end: int;
+        char_class: struct {
+            Char_Class :: struct {
+                range_start: int;
+                range_end: int;
+            }
+
+            negated: bool;
+            chars: [..] Char_Class;
+        };
+
+        backreference: struct {
+            by_index: bool;
+            index: int;
+            name: string;
         }
 
-        negated: bool;
-        chars: [..] Char_Class;
-    };
+        disjunction: struct {
+            left: Group;
+            right: Group;
+        }
 
-    backreference: struct {
-        by_index := true;
-        index: int;
-        name: string;
+        assertion: struct {
+            type: Assertion_Type;
+
+            // If applicable
+            negated: bool;
+            group: Group;
+        };
     }
-
-    disjunction: struct {
-        left: Regex_Group;
-        left.is_non_capturing = true;
-
-        right: Regex_Group;
-        right.is_non_capturing = true;
-    }
-
-    assertion: struct {
-        type: Regex_Assertion_Type;
-
-        // If applicable
-        negated: bool;
-        group: Regex_Group;
-    };
 }
 
-Regex_Quantifier :: struct {
+Quantifier :: struct {
     min_times := 1;
     max_times := 1;
     greedy := true;
 }
 
-Regex_Group_Flags :: enum_flags {
+Group_Flags :: enum_flags {
     CASE_INSENSITIVE :: (1 << 0);
     MULTILINE        :: (1 << 1);
     DOT_ALL          :: (1 << 2);
 }
 
-Regex_Group :: struct {
-    flags: Regex_Group_Flags;
+Group :: struct {
+    flags: Group_Flags;
 
     is_non_capturing := false;
     index := -1;
     name: string;
 
-    steps: [..] Regex_Step;
+    steps: [..] Step;
 }
 
 get_codepoint :: inline (p: *string) -> int, int {

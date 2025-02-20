@@ -1,5 +1,7 @@
 
-Regex_Match :: struct {
+#import "String";
+
+Match :: struct {
     captures: [..] string;
     named_captures: Table(string, string);
 }
@@ -13,19 +15,19 @@ Match_Options :: struct {
     time_limit_ms := 0;
 }
 
-match :: (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Regex_Match, Match_Result {
-    root_group: Regex_Step;
+match :: (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Match, Match_Result {
+    root_group: Step;
     root_group.symbol = .GROUP;
     root_group.group = regex.root;
 
-    matches: [..] Regex_Match;
+    matches: [..] Match;
 
     //
     // Right now our search strategy is very naive
     // We try to match at our current position, if
     // we fail we go to the next codepoint and try again.
     //
-    state: Regex_State;
+    state: State;
     state.p_base = text;
     state.flags = regex.flags;
     state.max_capture_index = regex.max_capture_index;
@@ -90,7 +92,7 @@ match :: (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Rege
     return matches, ifx matches.count > 0 then .MATCH else .NO_MATCH;
 }
 
-free_matches :: (matches: [..] Regex_Match) {
+free_matches :: (matches: [..] Match) {
     for match: matches {
         array_free(match.captures);
         deinit(*match.named_captures);
@@ -113,7 +115,7 @@ Backtrack_Ownership :: enum_flags {
 Backtrack_State :: struct {
     p: string;
     group_stack: [..] Group_State;
-    captures: [..] Regex_Capture;
+    captures: [..] Capture;
     ownership: Backtrack_Ownership = 0;
 
     // A single step can generate multiple backtracking state.
@@ -137,16 +139,16 @@ Group_Type :: enum {
 Group_State :: struct {
     p_group_start: string; // Pattern when group was entered
     step_index: int;
-    group: *Regex_Group;
-    quantifier: Regex_Quantifier;
+    group: *Group;
+    quantifier: Quantifier;
 
     group_type: Group_Type;
     current_quantifier: int;
 }
 
-Regex_State :: struct {
+State :: struct {
     total_steps := 0;
-    flags: Regex_Flags;
+    flags: Flags;
     p_base: string;
     max_capture_index: int;
     options: Match_Options;
@@ -155,25 +157,27 @@ Regex_State :: struct {
     allocator: Allocator;
 }
 
-Regex_Capture :: struct {
+Capture :: struct {
     index: int;
     name: string;
     text: string;
 }
 
-free_group :: (group: *Regex_Group) {
+free_group :: (group: *Group) {
     for * group.steps {
         free_step(it);
     }
     array_free(group.steps);
 }
 
-free_step :: (step: *Regex_Step) {
-    array_free(step.char_class.chars);
-    free_group(*step.group);
-    free_group(*step.disjunction.left);
-    free_group(*step.disjunction.right);
-    free_group(*step.assertion.group);
+free_step :: (step: *Step) {
+    if step.symbol == .CHAR_CLASS then array_free(step.char_class.chars);
+    if step.symbol == .GROUP then free_group(*step.group);
+    if step.symbol == .DISJUNCTION {
+        free_group(*step.disjunction.left);
+        free_group(*step.disjunction.right);
+    }
+    if step.symbol == .ASSERTION then free_group(*step.assertion.group);
 }
 
 Single_Match_Result :: enum {
@@ -182,7 +186,7 @@ Single_Match_Result :: enum {
     FAILURE;
 }
 
-try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_stack: *[..] Group_State, captures: *[..] Regex_Capture, bt_stack: *[..] Backtrack_State) -> Single_Match_Result {
+try_match_single :: (regex: *State, step: *Step, p: *string, group_stack: *[..] Group_State, captures: *[..] Capture, bt_stack: *[..] Backtrack_State) -> Single_Match_Result {
     regex.total_steps += 1;
 
     state_index := group_stack.count - 1;
@@ -192,19 +196,25 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
 
     if step.symbol == {
         case .LITERAL;
-            step_char := step.literal.char;
-            char, char_size := get_codepoint(p);
+            if p.count < step.literal.count then return .FAILURE;
 
-            // @TODO: unicode tolower instead of ascii
-            if get_state().group.flags & .CASE_INSENSITIVE && char < 255 && step_char < 255 {
-                char = to_lower(xx char);
-                step_char = to_lower(xx step_char);
+            p_str := p.*;
+            p_str.count = step.literal.count;
+
+            l_str: string;
+            l_str.data = step.literal.chars.data;
+            l_str.count = step.literal.count;
+
+            is_equal := false;
+            if get_state().group.flags & .CASE_INSENSITIVE {
+                is_equal = equal_nocase(l_str, p_str);
+            } else {
+                is_equal = equal(l_str, p_str);
             }
 
-            if step_char == char {
-                next_codepoint(p, char_size);
-                return .SUCCESS;
-            }
+            advance(p, step.literal.count * xx is_equal);
+
+            return ifx is_equal then .SUCCESS else .FAILURE;
 
         case .WILDCARD;
             char, char_size := get_codepoint(p);
@@ -238,7 +248,7 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
                 any_match |= match;
 
                 if match && !step.char_class.negated {
-                    next_codepoint(p, char_size);
+                    advance(p, char_size);
                     return .SUCCESS;
                 }
             }
@@ -255,7 +265,7 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
             return .NEW_GROUP;
 
         case .BACKREFERENCE;
-            capture: Regex_Capture;
+            capture: Capture;
             found := false;
 
             if step.backreference.by_index {
@@ -289,23 +299,21 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
             // We don't want to affect the actual match
             match := *capture.text;
 
-            while match.count > 0 && p.count > 0 {
-                m_char, m_char_size := get_codepoint(match);
-                p_char, p_char_size := get_codepoint(p);
+            if capture.text.count > p.count then return .FAILURE;
 
-                // @TODO: unicode tolower instead of ascii
-                if get_state().group.flags & .CASE_INSENSITIVE && m_char < 255 && p_char < 255 {
-                    m_char = to_lower(xx m_char);
-                    p_char = to_lower(xx p_char);
-                }
+            p_str := p.*;
+            p_str.count = match.count;
 
-                if p_char != m_char then return .FAILURE;
-
-                next_codepoint(match, m_char_size);
-                next_codepoint(p, p_char_size);
+            is_equal := false;
+            if get_state().group.flags & .CASE_INSENSITIVE {
+                is_equal = equal_nocase(capture.text, p_str);
+            } else {
+                is_equal = equal(capture.text, p_str);
             }
 
-            return ifx match.count == 0 then .SUCCESS else .FAILURE;
+            advance(p, capture.text.count * xx is_equal);
+
+            return ifx is_equal then .SUCCESS else .FAILURE;
 
         case .ASSERTION;
             if step.assertion.type == {
@@ -408,8 +416,8 @@ try_match_single :: (regex: *Regex_State, step: *Regex_Step, p: *string, group_s
     return .FAILURE;
 }
 
-add_group_to_stack :: inline (group_stack: *[..] Group_State, group: *Regex_Group, p: string,
-                       quantifier: Regex_Quantifier, group_type: Group_Type) {
+add_group_to_stack :: inline (group_stack: *[..] Group_State, group: *Group, p: string,
+                       quantifier: Quantifier, group_type: Group_Type) {
     state: Group_State;
     state.p_group_start = p;
     state.group = group;
@@ -420,8 +428,8 @@ add_group_to_stack :: inline (group_stack: *[..] Group_State, group: *Regex_Grou
     array_add(group_stack, state);
 }
 
-create_backtrack_state :: (bt_stack: *[..] Backtrack_State, group_stack: [..] Group_State, captures: [..] Regex_Capture, p: string) {
-    last_captures: [..] Regex_Capture;
+create_backtrack_state :: (bt_stack: *[..] Backtrack_State, group_stack: [..] Group_State, captures: [..] Capture, p: string) {
+    last_captures: [..] Capture;
     last_group_stack: [..] Group_State;
 
     for < bt_stack.* {
@@ -435,7 +443,7 @@ create_backtrack_state :: (bt_stack: *[..] Backtrack_State, group_stack: [..] Gr
     state.p = p;
 
     if last_captures.data && last_captures.count >= captures.count {
-        if memcmp(last_captures.data, captures.data, captures.count * size_of(Regex_Capture)) == 0 {
+        if memcmp(last_captures.data, captures.data, captures.count * size_of(Capture)) == 0 {
             state.captures = last_captures;
             state.captures.count = captures.count;
         }
@@ -445,7 +453,7 @@ create_backtrack_state :: (bt_stack: *[..] Backtrack_State, group_stack: [..] Gr
         state.ownership |= .OWNS_CAPTURES;
         state.captures.allocator = captures.allocator;
         array_reserve(*state.captures, captures.allocated);
-        memcpy(state.captures.data, captures.data, size_of(Regex_Capture) * captures.count);
+        memcpy(state.captures.data, captures.data, size_of(Capture) * captures.count);
         state.captures.count = captures.count;
     }
 
@@ -474,11 +482,11 @@ Match_Result :: enum {
     OUT_OF_TIME;
 }
 
-try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) -> Match_Result, [..] Regex_Capture {
+try_match :: (regex: *State, initial_group: *Group, text: string) -> Match_Result, [..] Capture {
     bt_stack: [..] Backtrack_State;
     bt_stack.allocator = temp;
 
-    captures: [..] Regex_Capture;
+    captures: [..] Capture;
     captures.allocator = regex.allocator;
 
     group_stack: [..] Group_State;
@@ -547,10 +555,12 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
                     advance_amount = bt.backwards_count - bt.repeat_count;
                 }
 
-                advance(p, advance_amount);
+                for 1..advance_amount {
+                    next_codepoint(p);
+                }
 
                 array_reserve(*captures, bt.captures.allocated);
-                memcpy(captures.data, bt.captures.data, size_of(Regex_Capture) * bt.captures.count);
+                memcpy(captures.data, bt.captures.data, size_of(Capture) * bt.captures.count);
                 captures.count = bt.captures.count;
 
                 array_reserve(*group_stack, bt.group_stack.allocated);
@@ -732,7 +742,7 @@ try_match :: (regex: *Regex_State, initial_group: *Regex_Group, text: string) ->
     return .MATCH, captures;
 }
 
-add_or_update_capture :: (captures: *[..] Regex_Capture, group: *Regex_Group, match: string) {
+add_or_update_capture :: (captures: *[..] Capture, group: *Group, match: string) {
     found := false;
     for * captures.* {
         if it.index == group.index {
@@ -748,7 +758,7 @@ add_or_update_capture :: (captures: *[..] Regex_Capture, group: *Regex_Group, ma
     }
 }
 
-remove_capture :: (captures: *[..] Regex_Capture, index: int) {
+remove_capture :: (captures: *[..] Capture, index: int) {
     for * captures.* {
         if it.index == index {
             remove it;
@@ -757,7 +767,7 @@ remove_capture :: (captures: *[..] Regex_Capture, index: int) {
     }
 }
 
-remove_group_child_captures :: (captures: *[..] Regex_Capture, group: *Regex_Group) {
+remove_group_child_captures :: (captures: *[..] Capture, group: *Group) {
     if !group.is_non_capturing then remove_capture(captures, group.index);
     for group.steps {
         if it.symbol == {
@@ -773,7 +783,7 @@ remove_group_child_captures :: (captures: *[..] Regex_Capture, group: *Regex_Gro
 
 #scope_module
 
-count_group_steps :: (group: *Regex_Group, captures: [] Regex_Capture) -> int, int {
+count_group_steps :: (group: *Group, captures: [] Capture) -> int, int {
     min_steps := 0;
     max_steps := 0;
 
@@ -787,8 +797,13 @@ count_group_steps :: (group: *Regex_Group, captures: [] Regex_Capture) -> int, i
 
     for group.steps {
         if it.symbol == {
+            case .LITERAL;
+                min_bytes := it.quantifier.min_times * it.literal.count;
+                max_bytes := it.quantifier.max_times * it.literal.count;
+                min_steps += min_bytes;
+                add_max(max_bytes);
+
             case .WILDCARD; #through;
-            case .LITERAL; #through;
             case .CHAR_CLASS;
                 min_steps += it.quantifier.min_times;
                 add_max(it.quantifier.max_times);
@@ -807,7 +822,7 @@ count_group_steps :: (group: *Regex_Group, captures: [] Regex_Capture) -> int, i
 
             case .BACKREFERENCE;
                 found := false;
-                capture: Regex_Capture;
+                capture: Capture;
 
                 if it.backreference.by_index {
                     for c: captures {

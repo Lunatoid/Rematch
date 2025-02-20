@@ -172,7 +172,7 @@ It will print JSON of the test, which can be added in the `tests/` directory.
 I tried to add many tests to this engine, but I am sure that there are still edge cases. Please report them if you find them!
 
 This engine is not super optimized. On my machine it can complete the test suite in around 20 ms.
-Node/V8's Regex implementation can do it in about 11 ms.
+Node/V8's Regex implementation can do it in about 12 ms.
 
 This repo is mirrored from a private repository.
 

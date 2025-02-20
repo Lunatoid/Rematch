@@ -42,14 +42,20 @@ main :: () {
     });
 
     log("Starting tests...");
-    total_time: Apollo_Time;
+    total_compile_time, total_match_time: Apollo_Time;
     for files {
-        total_time += perform_tests(it);
+        compile_time, match_time := perform_tests(it);
+        total_compile_time += compile_time;
+        total_match_time += match_time;
     }
-    log("\nFinished in % μs!", to_microseconds(total_time));
+
+    compile_time_us := to_microseconds(total_compile_time);
+    match_time_us := to_microseconds(total_match_time);
+    log("\nFinished in % μs! (compiling: % μs, matching: % μs)",
+        compile_time_us + match_time_us, compile_time_us, match_time_us);
 }
 
-test_single :: (pattern: string, text: string, flags: Rematch.Regex_Flags = .GLOBAL) {
+test_single :: (pattern: string, text: string, flags: Rematch.Flags = .GLOBAL) {
     r, success := Rematch.compile(pattern, flags);
     log("%", Rematch.to_string(*r,, temp));
     if success {
@@ -71,15 +77,15 @@ test_single :: (pattern: string, text: string, flags: Rematch.Regex_Flags = .GLO
     Rematch.deinit(*r);
 }
 
-perform_tests :: (path: string) -> Apollo_Time {
+perform_tests :: (path: string) -> (compile_time: Apollo_Time, match_time: Apollo_Time) {
     tests_json, success := json_from_file(path,, temp);
     defer json_free(tests_json);
 
-    total_time: Apollo_Time;
+    compile_time, match_time: Apollo_Time;
 
     if !success {
         log_error("Failed to open '%'", path);
-        return .{};
+        return .{}, .{};
     }
 
     log("\n--- % ---\n\n", path);
@@ -92,8 +98,12 @@ perform_tests :: (path: string) -> Apollo_Time {
     pass_count := 0;
 
     for test_case, test_index: test_cases {
+        start_time := current_time_monotonic();
         regex, compile_success := Rematch.compile(test_case.pattern, .MULTILINE | .GLOBAL);
+        end_time := current_time_monotonic();
         defer Rematch.deinit(*regex);
+
+        compile_time += end_time - start_time;
 
         if !compile_success {
             log("=> %", test_case.pattern);
@@ -107,11 +117,11 @@ perform_tests :: (path: string) -> Apollo_Time {
 
         pass := true;
         for input, input_index: test_case.inputs {
-            start_time := current_time_monotonic();
+            start_time = current_time_monotonic();
             matches, match_result := Rematch.match(*regex, input.text);
-            end_time := current_time_monotonic();
+            end_time = current_time_monotonic();
 
-            total_time += end_time - start_time;
+            match_time += end_time - start_time;
 
             defer Rematch.free_matches(matches);
 
@@ -188,6 +198,6 @@ perform_tests :: (path: string) -> Apollo_Time {
         print_color("All Pass!\n", color=.GREEN);
     }
 
-    return total_time;
+    return compile_time, match_time;
 }
 

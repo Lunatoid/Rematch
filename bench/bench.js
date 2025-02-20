@@ -8,7 +8,11 @@ const performTests = (file) => {
     return tests.forEach(testCase => {
         const { pattern, inputs } = testCase;
 
-        const regex = new RegExp(pattern, 'g');
+        const startTime = process.hrtime.bigint();
+        const regex = new RegExp(pattern, 'g'); // I think it only compiles on first use
+        const endTime = process.hrtime.bigint();
+        totalTime += endTime - startTime;
+
         inputs.forEach(input => {
             const { text, matches } = input;
 

@@ -30,10 +30,10 @@ build :: () {
     options.text_output_flags = .OUTPUT_TIMING_INFO;
 
     #if RELEASE {
-        set_optimization(*options, .VERY_OPTIMIZED);
+        set_optimization(*options, .VERY_OPTIMIZED, preserve_debug_info=true);
         options.backend = .LLVM;
     } else {
-        set_optimization(*options, .DEBUG);
+        set_optimization(*options, .DEBUG, preserve_debug_info=true);
         options.backend = .X64;
     }
 

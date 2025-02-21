@@ -382,26 +382,21 @@ try_match_single :: (regex: *State, step: *Step, p: *string, group_stack: *[..] 
                     p_group_start := p.*;
 
                     // Now create backtracking states for the min-max range
-                    p.data -= min_steps;
-                    p.count += min_steps;
+                    p.data -= max_steps;
+                    p.count += max_steps;
 
-                    // @TODO: we can try to at least match the first step of the LOOKBEHIND group
-                    // to decide whether to create backtrack state for it.
-                    for min_steps..max_steps {
-                        add_group_to_stack(group_stack, *step.assertion.group, p_group_start, step.quantifier, group_type);
+                    add_group_to_stack(group_stack, *step.assertion.group, p_group_start, step.quantifier, group_type);
 
-                        if it + 1 <= max_steps {
-                            peek_pointer(group_stack.*).step_index = -1;
-
-                            create_backtrack_state(bt_stack, group_stack.*, captures.*, p.*);
-                            bt := peek_pointer(bt_stack.*);
-                            bt.group_stack[bt.group_stack.count - 2].step_index += 1;
-
-                            group_stack.count -= 1;
-                            p.data -= 1;
-                            p.count += 1;
-                        }
+                    if max_steps > min_steps {
+                        create_backtrack_state(bt_stack, group_stack.*, captures.*, p.*);
+                        bt := peek_pointer(bt_stack.*);
+                        bt.group_stack[bt.group_stack.count - 1].step_index = -1;
+                        bt.group_stack[bt.group_stack.count - 2].step_index += 1;
+                        bt.repeat_count = max_steps - min_steps;
                     }
+
+                    p.data += max_steps - min_steps;
+                    p.count -= max_steps - min_steps;
 
                     return .NEW_GROUP;
 

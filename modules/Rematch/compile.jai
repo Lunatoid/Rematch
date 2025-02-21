@@ -55,14 +55,24 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
         }
     }
 
-    add_char_class :: (negated: bool, chars: ..Step.char_class.Char_Class) #expand {
+    add_char_class :: (negated: bool, chars: ..Char_Class) #expand {
         step: Step;
         step.symbol = .CHAR_CLASS;
 
         step.char_class.negated = negated;
         for chars {
-            array_add(*step.char_class.chars, it);
+            if it.range_start <= 0xFF && it.range_end <= 0xFF {
+                for c: it.range_start..it.range_end {
+                    step.char_class.bitmap[c / 8] |= xx (1 << (c.(u8) % 8));
+                }
+            } else {
+                array_add(*step.char_class.chars, it);
+            }
         }
+
+        insertion_sort(step.char_class.chars, (a: Char_Class, b: Char_Class) -> int {
+            return a.range_start - b.range_start;
+        });
 
         array_add(*peek(group_stack).steps, step);
     }
@@ -338,7 +348,7 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
                     advance(p);
                 }
 
-                chars: [..] Step.char_class.Char_Class;
+                chars: [..] Char_Class;
                 chars.allocator = temp;
 
                 while p.data[0] != #char "]" {
@@ -607,14 +617,14 @@ parse_escape :: (p: *string) -> int, bool {
 
 MAX_CHAR :: S32_MAX;
 
-WORD_CHAR_CLASS :: Step.char_class.Char_Class.[
+WORD_CHAR_CLASS :: Char_Class.[
     .{ #char "a", #char "z" },
     .{ #char "A", #char "Z" },
     .{ #char "0", #char "9" },
     .{ #char "_", #char "_" },
 ];
 
-NEGATED_WORD_CHAR_CLASS :: Step.char_class.Char_Class.[
+NEGATED_WORD_CHAR_CLASS :: Char_Class.[
     .{ 0, 47 },
     .{ 58, 64 },
     .{ 91, 94 },
@@ -622,16 +632,16 @@ NEGATED_WORD_CHAR_CLASS :: Step.char_class.Char_Class.[
     .{ 123, MAX_CHAR },
 ];
 
-DIGIT_CHAR_CLASS :: Step.char_class.Char_Class.[
+DIGIT_CHAR_CLASS :: Char_Class.[
     .{ #char "0", #char "9" }
 ];
 
-NEGATED_DIGIT_CHAR_CLASS :: Step.char_class.Char_Class.[
+NEGATED_DIGIT_CHAR_CLASS :: Char_Class.[
     .{ 0, 47 },
     .{ 58, MAX_CHAR },
 ];
 
-WHITESPACE_CHAR_CLASS :: Step.char_class.Char_Class.[
+WHITESPACE_CHAR_CLASS :: Char_Class.[
     .{ #char " ", #char " " },
     .{ #char "\n", #char "\n" },
     .{ #char "\r", #char "\r" },
@@ -659,7 +669,7 @@ WHITESPACE_CHAR_CLASS :: Step.char_class.Char_Class.[
     .{ #char "\ufeff", #char "\ufeff" },
 ];
 
-NEGATED_WHITESPACE_CHAR_CLASS :: Step.char_class.Char_Class.[
+NEGATED_WHITESPACE_CHAR_CLASS :: Char_Class.[
     .{ 0, 8 },
     .{ 11, 12 },
     .{ 15, 31 },

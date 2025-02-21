@@ -57,6 +57,7 @@ Flags:
 String :: #import "String";
 #import "Unicode";
 #import "Hash_Table";
+#import "IntroSort";
 
 #load "compile.jai";
 #load "match.jai";
@@ -112,6 +113,11 @@ Assertion_Type :: enum {
     ANCHOR_END;    // $
 }
 
+Char_Class :: struct {
+    range_start: int;
+    range_end: int;
+}
+
 Step :: struct {
     symbol: Symbol;
 
@@ -126,13 +132,9 @@ Step :: struct {
         group: Group;
 
         char_class: struct {
-            Char_Class :: struct {
-                range_start: int;
-                range_end: int;
-            }
-
             negated: bool;
-            chars: [..] Char_Class;
+            bitmap: [32] u8; // Fast-path bitmask for ASCII
+            chars: [..] Char_Class; // Slow-path for Unicode
         };
 
         backreference: struct {

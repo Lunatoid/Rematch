@@ -241,24 +241,41 @@ try_match_single :: (regex: *State, step: *Step, p: *string, group_stack: *[..] 
             return .NEW_GROUP;
 
         case .CHAR_CLASS;
-            any_match := false;
-            for step.char_class.chars {
-                char, char_size := get_codepoint(p);
-                match := char >= it.range_start && char <= it.range_end;
-                any_match |= match;
+            char, char_size := get_codepoint(p);
+            result: enum {
+                UNKNOWN;
+                MATCH;
+                NO_MATCH;
+            };
+            if char <= 0xFF {
+                c := char.(u8);
+                match := (step.char_class.bitmap[c / 8] & (1 << (c % 8))) != 0;
+                result = ifx match != step.char_class.negated then .MATCH else .NO_MATCH;
+            } else {
+                low := 0;
+                high := step.char_class.chars.count;
 
-                if match && !step.char_class.negated {
-                    advance(p, char_size);
-                    return .SUCCESS;
+                while low < high {
+                    mid := (low + high) / 2;
+                    range := step.char_class.chars[mid];
+
+                    if char < range.range_start {
+                        high = mid;
+                    } else if char > range.range_end {
+                        low = mid + 1;
+                    } else {
+                        result = ifx !step.char_class.negated then .MATCH else .NO_MATCH;
+                        break;
+                    }
                 }
             }
 
-            success := step.char_class.negated && !any_match;
-            if success {
-                next_codepoint(p);
-                return .SUCCESS;
+            if result == .UNKNOWN {
+                result = ifx step.char_class.negated then .MATCH else .NO_MATCH;
             }
-            return .FAILURE;
+
+            advance(p, char_size * xx (result == .MATCH));
+            return ifx result == .MATCH then .SUCCESS else .FAILURE;
 
         case .GROUP;
             add_group_to_stack(group_stack, *step.group, p.*, step.quantifier, .GROUP);
@@ -743,19 +760,15 @@ try_match :: (regex: *State, initial_group: *Group, text: string) -> Match_Resul
 }
 
 add_or_update_capture :: (captures: *[..] Capture, group: *Group, match: string) {
-    found := false;
     for * captures.* {
         if it.index == group.index {
             it.text = match;
             it.name = group.name;
-            found = true;
-            break;
+            return;
         }
     }
 
-    if !found {
-        array_add(captures, .{ index=group.index, name=group.name, text=match });
-    }
+    array_add(captures, .{ index=group.index, name=group.name, text=match });
 }
 
 remove_capture :: (captures: *[..] Capture, index: int) {
@@ -768,6 +781,8 @@ remove_capture :: (captures: *[..] Capture, index: int) {
 }
 
 remove_group_child_captures :: (captures: *[..] Capture, group: *Group) {
+    // @TODO: can probably be sped up by first getting all the unique indices
+    // and then going over the array and removing them
     if !group.is_non_capturing then remove_capture(captures, group.index);
     for group.steps {
         if it.symbol == {
@@ -783,6 +798,7 @@ remove_group_child_captures :: (captures: *[..] Capture, group: *Group) {
 
 #scope_module
 
+// Actually counts codepoints
 count_group_steps :: (group: *Group, captures: [] Capture) -> int, int {
     min_steps := 0;
     max_steps := 0;

@@ -83,21 +83,26 @@ step_to_string :: (builder: *String_Builder, step: *Step, flags: Group_Flags) {
             append(builder, #char "[");
             if step.char_class.negated then append(builder, "^");
 
-            min_ascii := 255;
+            min_ascii := 0;
             max_ascii := 0;
+            in_range := false;
             for 0..255 {
                 if step.char_class.bitmask[it / 8] & (1 << (it % 8)) {
-                    min_ascii = min(min_ascii, it);
-                    max_ascii = max(max_ascii, it);
+                    if !in_range {
+                        min_ascii = it;
+                        in_range = true;
+                    }
+                    max_ascii = it;
+                } else if in_range {
+                    if min_ascii == max_ascii {
+                        print_utf32(min_ascii);
+                    } else {
+                        print_utf32(min_ascii);
+                        append(builder, "-");
+                        print_utf32(max_ascii);
+                    }
+                    in_range = false;
                 }
-            }
-
-            if min_ascii != max_ascii {
-                print_utf32(min_ascii);
-                append(builder, "-");
-                print_utf32(max_ascii);
-            } else {
-                print_utf32(max_ascii);
             }
 
             for step.char_class.chars {

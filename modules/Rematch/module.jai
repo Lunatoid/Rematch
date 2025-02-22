@@ -56,7 +56,6 @@ Flags:
 #import "Math";
 String :: #import "String";
 #import "Unicode";
-#import "Hash_Table";
 #import "IntroSort";
 
 #load "compile.jai";
@@ -81,7 +80,6 @@ Regex :: struct {
     last_index := 0;
     flags: Flags;
     root: Group;
-    pattern: string;
     max_capture_index: int;
 }
 

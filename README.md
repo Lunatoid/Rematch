@@ -142,8 +142,6 @@ defer free(pattern);
 
 log("%", pattern); // "([a-zA-Z0-9_]+) {2,4}\1"
 ```
-*Please note that `Rematch.to_string()` is not perfect, see below for remarks.*
-
 
 Replacing a string using Regex:
 ```go
@@ -164,14 +162,13 @@ It will print JSON of the test, which can be added in the `tests/` directory.
 ### Known Issues
 
 * As this is a backtracking engine, "catastrophic backtracking" can occur.
-* `Rematch.to_string()` currently does not properly print cases where flags are toggled in capture groups, e.g. `(?i:(?-i:foo))`.
 * `Rematch.compile()` is currently too lax. It allows for input like `foo^`, which should not be allowed.
 
 ### Remarks
 
 I tried to add many tests to this engine, but I am sure that there are still edge cases. Please report them if you find them!
 
-This engine is not super optimized. On my machine it can complete the test suite in around 20 ms.
+This engine is not super optimized. On my machine it can complete the test suite in around 19 ms.
 Node/V8's Regex implementation can do it in about 12 ms.
 
 This repo is mirrored from a private repository.

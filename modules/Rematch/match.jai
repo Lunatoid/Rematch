@@ -6,12 +6,8 @@ Match :: struct {
     named_captures: Table(string, string);
 }
 
-// `memory_limit` must be at least 1 page size. It will count as OUT_OF_MEMORY if there is less than 1024 bytes available.
-// If `time_limit_ms` is greater than 0 it will abort if matching the text takes longer than that.
 Match_Options :: struct {
-    DEFAULT_MEMORY_LIMIT :: 256 * 1024 * 1024;
-
-    memory_limit  := DEFAULT_MEMORY_LIMIT;
+    memory_limit  := 0;
     time_limit_ms := 0;
 }
 
@@ -249,7 +245,7 @@ try_match_single :: (regex: *State, step: *Step, p: *string, group_stack: *[..] 
             };
             if char <= 0xFF {
                 c := char.(u8);
-                match := (step.char_class.bitmap[c / 8] & (1 << (c % 8))) != 0;
+                match := (step.char_class.bitmask[c / 8] & (1 << (c % 8))) != 0;
                 result = ifx match != step.char_class.negated then .MATCH else .NO_MATCH;
             } else {
                 low := 0;
@@ -523,7 +519,7 @@ try_match :: (regex: *State, initial_group: *Group, text: string) -> Match_Resul
     end_time := current_time_monotonic() + milliseconds_to_apollo(regex.options.time_limit_ms);
 
     while group_stack.count > 0 {
-        {
+        if regex.options.memory_limit > 0 {
             MEMORY_FULL_MARGIN :: 64;
             current := regex.tracking_allocator.current_allocated;
 
@@ -678,10 +674,6 @@ try_match :: (regex: *State, initial_group: *Group, text: string) -> Match_Resul
 
                         // @TODO: find out why sometimes this is already at -1... It shouldn't happen,
                         // but can be bandaided by the max(-1, ...) above.
-                        #if false {
-                            orig_step_index := bt_group.step_index;
-                            assert(bt_group.step_index != orig_step_index - 1);
-                        }
 
                         // Remove all captures we made for this group and child groups.
                         // This is necessary because cases like ((cat)|(dog))+ exist

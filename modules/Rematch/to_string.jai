@@ -3,7 +3,7 @@ to_string :: (regex: *Regex) -> string {
     builder: String_Builder;
 
     for * regex.root.steps {
-        step_to_string(*builder, it);
+        step_to_string(*builder, it, regex.root.flags);
     }
 
     return builder_to_string(*builder);
@@ -11,7 +11,7 @@ to_string :: (regex: *Regex) -> string {
 
 #scope_file
 
-step_to_string :: (builder: *String_Builder, step: *Step) {
+step_to_string :: (builder: *String_Builder, step: *Step, flags: Group_Flags) {
     print_utf32 :: (char: int) #expand {
         codepoint: u32;
         codepoint_str: string;
@@ -72,16 +72,33 @@ step_to_string :: (builder: *String_Builder, step: *Step) {
 
         case .DISJUNCTION;
             for * step.disjunction.left.steps {
-                step_to_string(builder, it);
+                step_to_string(builder, it, step.disjunction.left.flags);
             }
             append(builder, #char "|");
             for * step.disjunction.right.steps {
-                step_to_string(builder, it);
+                step_to_string(builder, it, step.disjunction.right.flags);
             }
 
         case .CHAR_CLASS;
             append(builder, #char "[");
             if step.char_class.negated then append(builder, "^");
+
+            min_ascii := 255;
+            max_ascii := 0;
+            for 0..255 {
+                if step.char_class.bitmask[it / 8] & (1 << (it % 8)) {
+                    min_ascii = min(min_ascii, it);
+                    max_ascii = max(max_ascii, it);
+                }
+            }
+
+            if min_ascii != max_ascii {
+                print_utf32(min_ascii);
+                append(builder, "-");
+                print_utf32(max_ascii);
+            } else {
+                print_utf32(max_ascii);
+            }
 
             for step.char_class.chars {
                 print_utf32(it.range_start);
@@ -101,11 +118,43 @@ step_to_string :: (builder: *String_Builder, step: *Step) {
                 // @TODO: we currently don't detect cases like this:
                 // (?i:(?-i:foo))
                 // Because to the inner groups's POV, there are no flags.
-                if step.group.flags & .CASE_INSENSITIVE then append(builder, "i");
-                if step.group.flags & .MULTILINE then append(builder, "m");
-                if step.group.flags & .DOT_ALL then append(builder, "s");
+                if flags != step.group.flags {
+                    is_set :: (a: Group_Flags, b: Group_Flags, flag: Group_Flags) -> bool {
+                        return (a & flag) && !(b & flag);
+                    }
 
-                append(builder, ":");
+
+                    if step.group.flags != flags {
+                        if is_set(step.group.flags, flags, .CASE_INSENSITIVE) then append(builder, "i");
+                        if is_set(step.group.flags, flags, .MULTILINE) then append(builder, "m");
+                        if is_set(step.group.flags, flags, .DOT_ALL) then append(builder, "s");
+
+                        printed_hyphen := false;
+                        if is_set(flags, step.group.flags, .CASE_INSENSITIVE) {
+                            if !printed_hyphen {
+                                printed_hyphen = true;
+                                append(builder, "-");
+                            }
+                            append(builder, "i");
+                        }
+                        if is_set(flags, step.group.flags, .MULTILINE) {
+                            if !printed_hyphen {
+                                printed_hyphen = true;
+                                append(builder, "-");
+                            }
+                            append(builder, "m");
+                        }
+                        if is_set(flags, step.group.flags, .DOT_ALL) {
+                            if !printed_hyphen {
+                                printed_hyphen = true;
+                                append(builder, "-");
+                            }
+                            append(builder, "s");
+                        }
+                    }
+
+                    append(builder, ":");
+                }
             }
 
             if step.group.name.count > 0 {
@@ -113,7 +162,7 @@ step_to_string :: (builder: *String_Builder, step: *Step) {
             }
 
             for * step.group.steps {
-                step_to_string(builder, it);
+                step_to_string(builder, it, step.group.flags);
             }
             append(builder, #char ")");
 
@@ -141,7 +190,7 @@ step_to_string :: (builder: *String_Builder, step: *Step) {
                     }
 
                     for * step.assertion.group.steps {
-                        step_to_string(builder, it);
+                        step_to_string(builder, it, step.assertion.group.flags);
                     }
                     append(builder, #char ")");
 
@@ -153,7 +202,7 @@ step_to_string :: (builder: *String_Builder, step: *Step) {
                     }
 
                     for * step.assertion.group.steps {
-                        step_to_string(builder, it);
+                        step_to_string(builder, it, step.assertion.group.flags);
                     }
                     append(builder, #char ")");
 
@@ -166,23 +215,23 @@ step_to_string :: (builder: *String_Builder, step: *Step) {
             }
     }
 
-    min := step.quantifier.min_times;
-    max := step.quantifier.max_times;
-    if min == 1 && max == 1 {
+    min_times := step.quantifier.min_times;
+    max_times := step.quantifier.max_times;
+    if min_times == 1 && max_times == 1 {
         // Default
-    } else if min == 0 && max == 1 {
+    } else if min_times == 0 && max_times == 1 {
         append(builder, #char "?");
-    } else if min == 1 && max == S64_MAX {
+    } else if min_times == 1 && max_times == S64_MAX {
         append(builder, #char "+");
-    } else if min == 0 && max == S64_MAX {
+    } else if min_times == 0 && max_times == S64_MAX {
         append(builder, #char "*");
     } else {
-        print(builder, "{%", min);
+        print(builder, "{%", min_times);
 
-        if min != max {
+        if min_times != max_times {
             append(builder, #char ",");
-            if max < S64_MAX {
-                print(builder, "%", max);
+            if max_times < S64_MAX {
+                print(builder, "%", max_times);
             }
         }
         append(builder, #char "}");

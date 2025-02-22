@@ -63,7 +63,7 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
         for chars {
             if it.range_start <= 0xFF && it.range_end <= 0xFF {
                 for c: it.range_start..it.range_end {
-                    step.char_class.bitmap[c / 8] |= xx (1 << (c.(u8) % 8));
+                    step.char_class.bitmask[c / 8] |= xx (1 << (c.(u8) % 8));
                 }
             } else {
                 array_add(*step.char_class.chars, it);

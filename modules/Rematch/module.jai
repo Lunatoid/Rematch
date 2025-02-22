@@ -133,7 +133,7 @@ Step :: struct {
 
         char_class: struct {
             negated: bool;
-            bitmap: [32] u8; // Fast-path bitmask for ASCII
+            bitmask: [32] u8; // Fast-path bitmask for ASCII
             chars: [..] Char_Class; // Slow-path for Unicode
         };
 

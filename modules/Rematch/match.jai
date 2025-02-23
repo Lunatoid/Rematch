@@ -135,6 +135,12 @@ match_internal :: (state: *State, regex: *Regex) -> [..] Match_Ranges, Match_Res
 
     matches: [..] Match_Ranges;
 
+    defer {
+        array_free(state.captures);
+        array_free(state.group_stack);
+        array_free(state.bt_stack);
+    }
+
     //
     // Right now our search strategy is very naive
     // We try to match at our current position, if
@@ -148,7 +154,6 @@ match_internal :: (state: *State, regex: *Regex) -> [..] Match_Ranges, Match_Res
 
     total_index := 0;
     while !(state.index + 1 > state.buffer.count && state.end_of_input) {
-        defer state.tracking_allocator.high_water_mark = 0;
         old_index := state.index;
 
         if state.buffer[state.index] == #char "\n" && !(regex.flags & .MULTILINE) {
@@ -156,7 +161,7 @@ match_internal :: (state: *State, regex: *Regex) -> [..] Match_Ranges, Match_Res
         }
 
         result := try_match(state, *regex.root);
-        defer array_reset(*state.captures);
+        defer array_reset_keeping_memory(*state.captures);
 
         if result == .MATCH {
             // Successful match!
@@ -199,8 +204,7 @@ match_internal :: (state: *State, regex: *Regex) -> [..] Match_Ranges, Match_Res
             next_codepoint(state);
             if regex.flags & .STICKY then break;
         } else {
-            array_reset(*matches);
-            return matches, result;
+            break;
         }
     }
 
@@ -612,8 +616,8 @@ try_match :: (regex: *State, initial_group: *Group) -> Match_Result {
             if it.ownership & .OWNS_GROUP_STACK then array_free(it.group_stack);
         }
 
-        array_reset(*regex.group_stack);
-        array_reset(*regex.bt_stack);
+        array_reset_keeping_memory(*regex.group_stack);
+        array_reset_keeping_memory(*regex.bt_stack);
     }
 
     INVALID_STATE_INDEX :: -1;

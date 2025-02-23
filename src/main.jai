@@ -66,7 +66,7 @@ test_single :: (pattern: string, text: string, flags: Rematch.Flags = .GLOBAL) {
         if match_result == .MATCH {
             log("[");
             for matches {
-                log("  %", Rematch.ranges_to_strings(it.captures, text,, temp));
+                log("  %", it.captures);
             }
             log("]");
             Rematch.free_matches(matches);
@@ -146,7 +146,7 @@ perform_tests :: (path: string) -> (compile_time: Apollo_Time, match_time: Apoll
 
             for match_index: 0..min_matches-1 {
                 expected := input.matches[match_index];
-                received := Rematch.ranges_to_strings(matches[match_index].captures, input.text,, temp);
+                received := matches[match_index].captures;
 
                 if expected.count != received.count {
                     log("=> %. %", test_index, pattern);

@@ -133,6 +133,22 @@ if match_result == .OUT_OF_TIME || match_result == .OUT_OF_MEMORY {
 }
 ```
 
+Streaming input text:
+```go
+stream: Rematch.Text_Stream;
+stream.callback = (buffer: *[..] u8, requested: int, user_data: *void) -> int {
+    file := user_data.(*File).*;
+    array_reserve(buffer, buffer.count + requested);
+    _, read := file_read(file, buffer.data + buffer.count, requested);
+    return read;
+}
+stream.user_data = *file;
+
+matches, match_result := Rematch.match(*regex, stream);
+// Note that matches here are indices into the file (start, count) instead
+// of string views like with the version that accepts a string.
+```
+
 Converting compiled Regex back into a string:
 ```go
 regex, success := Rematch.compile("(\\w+) {2,4}\\1", .GLOBAL);
@@ -168,7 +184,7 @@ It will print JSON of the test, which can be added in the `tests/` directory.
 
 I tried to add many tests to this engine, but I am sure that there are still edge cases. Please report them if you find them!
 
-This engine is not super optimized. On my machine it can complete the test suite in around 20 ms.
+This engine is not super optimized. On my machine it can complete the test suite in around 21 ms.
 Node/V8's Regex implementation can do it in about 12 ms.
 
 This repo is mirrored from a private repository.

@@ -15,14 +15,19 @@ operator != :: (a: Match_Range, b: Match_Range) -> bool {
     return a.start == b.start && a.count == b.count;
 }
 
-Match :: struct {
+Match_Ranges :: struct {
     captures: [..] Match_Range;
     named_captures: [..] Named_Match_Range;
+}
 
-    // After calling Rematch.match(), this buffer will hold the
-    // text input that you passed to it. All match strings are views
-    // into this text. Gets freed by Rematch.deinit()
-    buffer: [..] u8;
+Named_Match :: struct {
+    name: string;
+    text: string;
+}
+
+Match_Strings :: struct {
+    captures: [..] string;
+    named_captures: [..] Named_Match;
 }
 
 Match_Options :: struct {
@@ -37,7 +42,7 @@ range_to_string :: inline (range: Match_Range, text: string) -> string {
     return str;
 }
 
-ranges_to_strings :: (ranges: [] Match_Range, text: string) -> [..] string {
+ranges_to_strings :: inline (ranges: [] Match_Range, text: string) -> [..] string {
     str_matches: [..] string;
     for ranges {
         array_add(*str_matches, range_to_string(it, text));
@@ -45,46 +50,103 @@ ranges_to_strings :: (ranges: [] Match_Range, text: string) -> [..] string {
     return str_matches;
 }
 
-match :: inline (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Match, Match_Result {
-    stream: Text_Stream;
-    stream.user_data = *text;
-    stream.callback = (buffer: *[..] u8, user_data: *void) -> bool {
-        str := user_data.(*string).*;
-        array_resize(buffer, str.count, false);
-        memcpy(buffer.data, str.data, str.count);
-        return true;
-    };
+match_ranges_to_strings :: (matches: [..] Match_Ranges, text: string) -> [..] Match_Strings {
+    string_matches: [..] Match_Strings;
 
-    matches, match_result := match(regex, stream, options);
-    return matches, match_result;
+    for match: matches {
+        m: Match_Strings;
+        m.captures = ranges_to_strings(match.captures, text);
+        for match.named_captures {
+            str := range_to_string(it.range, text);
+            array_add(*m.named_captures, .{ name=it.name, text=str });
+        }
+        array_add(*string_matches, m);
+    }
+
+    return string_matches;
 }
 
-match :: (regex: *Regex, stream: Text_Stream, options := Match_Options.{}) -> [..] Match, Match_Result {
-    root_group: Step;
-    root_group.symbol = .GROUP;
-    root_group.group = regex.root;
+match :: inline (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Match_Strings, Match_Result {
+    state: State;
+    state.flags = regex.flags;
+    state.max_capture_index = regex.max_capture_index;
+    state.options = options;
+    state.buffer.data = text.data;
+    state.buffer.count = text.count;
+    state.end_of_input = true;
 
-    matches: [..] Match;
+    matches, match_result := match_internal(*state, regex);
 
-    //
-    // Right now our search strategy is very naive
-    // We try to match at our current position, if
-    // we fail we go to the next codepoint and try again.
-    //
+    string_matches := match_ranges_to_strings(matches, text);
+    free_matches(matches);
+
+    return string_matches, match_result;
+}
+
+match :: inline (regex: *Regex, stream: Text_Stream, options := Match_Options.{}) -> [..] Match_Ranges, Match_Result {
     state: State;
     state.flags = regex.flags;
     state.max_capture_index = regex.max_capture_index;
     state.options = options;
     state.text_stream = stream;
 
+    array_reserve(*state.buffer, 32);
+    fetch(*state, 1);
+
+    matches, match_result := match_internal(*state, regex);
+
+    array_free(state.buffer);
+
+    return matches, match_result;
+}
+
+free_matches :: (matches: [..] Match_Ranges) {
+    for match: matches {
+        array_free(match.captures);
+        array_free(match.named_captures);
+    }
+    array_free(matches);
+}
+
+free_matches :: (matches: [..] Match_Strings) {
+    for match: matches {
+        array_free(match.captures);
+        array_free(match.named_captures);
+    }
+    array_free(matches);
+}
+
+deinit :: (regex: *Regex) {
+    free_group(*regex.root);
+}
+
+Text_Stream_Callback :: #type (buffer: *[..] u8, requested: int, user_data: *void) -> bytes_written: int;
+Text_Stream :: struct {
+    callback: Text_Stream_Callback;
+    user_data: *void;
+}
+
+#scope_file
+
+match_internal :: (state: *State, regex: *Regex) -> [..] Match_Ranges, Match_Result {
+    root_group: Step;
+    root_group.symbol = .GROUP;
+    root_group.group = regex.root;
+
+    matches: [..] Match_Ranges;
+
+    //
+    // Right now our search strategy is very naive
+    // We try to match at our current position, if
+    // we fail we go to the next codepoint and try again.
+    //
+
     state.tracking_allocator.allocator = context.allocator;
     state.allocator = .{tracking_allocator_proc, *state.tracking_allocator};
 
-    defer array_free(state.buffer);
+    if regex.flags & .STICKY then advance(state, regex.last_index);
 
-    if regex.flags & .STICKY then advance(*state, regex.last_index);
-
-    fetch(*state);
+    total_index := 0;
     while !(state.index + 1 > state.buffer.count && state.end_of_input) {
         defer state.tracking_allocator.high_water_mark = 0;
         old_index := state.index;
@@ -93,7 +155,7 @@ match :: (regex: *Regex, stream: Text_Stream, options := Match_Options.{}) -> [.
             break;
         }
 
-        result := try_match(*state, *regex.root);
+        result := try_match(state, *regex.root);
         defer array_reset(*state.captures);
 
         if result == .MATCH {
@@ -112,19 +174,29 @@ match :: (regex: *Regex, stream: Text_Stream, options := Match_Options.{}) -> [.
             array_resize(*m.captures, max_index + 1);
 
             for state.captures {
-                m.captures[it.index] = it.range;
+                range := Match_Range.{ start=it.range.start+total_index, count=it.range.count };
+                m.captures[it.index] = range;
                 if it.name.count > 0 {
-                    array_add(*m.named_captures, .{ range=it.range, name=it.name });
+                    array_add(*m.named_captures, .{ name=it.name, range=range });
                 }
             }
+            regex.last_index = total_index + state.index;
 
-            regex.last_index = state.index;
-            if old_index == state.index then advance(*state);
+            if old_index == state.index then state.index += 1;
+
+            // We don't need the preceding text anymore
+            if !state.end_of_input {
+                memcpy(state.buffer.data, state.buffer.data + state.index, state.buffer.count - state.index);
+                state.buffer.count -= state.index;
+                total_index += state.index;
+                state.index = 0;
+                fetch(state, 1);
+            }
 
             if !(regex.flags & .GLOBAL) then break;
         } else if result == .NO_MATCH {
             state.index = old_index;
-            next_codepoint(*state);
+            next_codepoint(state);
             if regex.flags & .STICKY then break;
         } else {
             array_reset(*matches);
@@ -135,26 +207,6 @@ match :: (regex: *Regex, stream: Text_Stream, options := Match_Options.{}) -> [.
     regex.total_steps = state.total_steps;
     return matches, ifx matches.count > 0 then .MATCH else .NO_MATCH;
 }
-
-free_matches :: (matches: [..] Match) {
-    for match: matches {
-        array_free(match.captures);
-        array_free(match.named_captures);
-    }
-    array_free(matches);
-}
-
-deinit :: (regex: *Regex) {
-    free_group(*regex.root);
-}
-
-Text_Stream_Callback :: #type (buffer: *[..] u8, user_data: *void) -> end_of_input: bool;
-Text_Stream :: struct {
-    callback: Text_Stream_Callback;
-    user_data: *void;
-}
-
-#scope_file
 
 Backtrack_Ownership :: enum_flags {
     OWNS_GROUP_STACK :: 1 << 0;
@@ -253,7 +305,7 @@ try_match_single :: (regex: *State, step: *Step) -> Single_Match_Result {
 
     if step.symbol == {
         case .LITERAL;
-            if !fetch_until(regex, step.literal.count) then return .FAILURE;
+            if !fetch(regex, step.literal.count) then return .FAILURE;
 
             p_str := buffer_as_string(regex);
             p_str.count = step.literal.count;
@@ -374,7 +426,7 @@ try_match_single :: (regex: *State, step: *Step) -> Single_Match_Result {
             match.data = regex.buffer.data + capture.range.start;
             match.count = capture.range.count;
 
-            if !fetch_until(regex, match.count) then return .FAILURE;
+            if !fetch(regex, match.count) then return .FAILURE;
 
             p_str := buffer_as_string(regex);
             p_str.count = match.count;
@@ -466,7 +518,7 @@ try_match_single :: (regex: *State, step: *Step) -> Single_Match_Result {
                     return .FAILURE;
 
                 case .ANCHOR_END;
-                    if !fetch_until(regex, 1) then return .SUCCESS;
+                    if !fetch(regex, 1) then return .SUCCESS;
 
                     if regex.flags | .MULTILINE {
                         return ifx regex.buffer[regex.index] == #char "\n" then .SUCCESS else .FAILURE;
@@ -641,7 +693,7 @@ try_match :: (regex: *State, initial_group: *Group) -> Match_Result {
             return false;
         }
 
-        if !fetch_until(regex, 1) || get_state().step_index < 0 ||
+        if !fetch(regex, 1) || get_state().step_index < 0 ||
            get_state().step_index >= get_state().group.steps.count {
             matched_necessary := true;
             new_group := false;
@@ -759,7 +811,7 @@ try_match :: (regex: *State, initial_group: *Group) -> Match_Result {
         }
 
         for 1..step.quantifier.max_times {
-            if !fetch_until(regex, 1) then break;
+            if !fetch(regex, 1) then break;
 
             match_result = try_match_single(regex, step);
 
@@ -838,23 +890,20 @@ remove_group_child_captures :: (captures: *[..] Capture, group: *Group) {
 
 #scope_module
 
-fetch :: inline (regex: *State) {
-    regex.end_of_input = regex.text_stream.callback(*regex.buffer, regex.text_stream.user_data);
-}
+fetch :: inline (regex: *State, count: int) -> bool {
+    necessary := count - (regex.buffer.count - regex.index);
 
-fetch_until :: inline (regex: *State, count: int) -> bool {
-    while regex.index + count > regex.buffer.count {
-        if regex.end_of_input then return false;
-        fetch(regex);
-    }
-    return true;
+    if necessary <= 0 || regex.end_of_input then return necessary <= 0;
+
+    array_reserve(*regex.buffer, regex.buffer.count + necessary);
+    read := regex.text_stream.callback(*regex.buffer, necessary, regex.text_stream.user_data);
+
+    regex.end_of_input = necessary > read;
+    return necessary <= read;
 }
 
 advance :: inline (regex: *State, count := 1) {
-    if regex.index + count > regex.buffer.count && !regex.end_of_input {
-        fetch(regex);
-    }
-
+    fetch(regex, count);
     regex.index += count;
 }
 
@@ -863,7 +912,7 @@ buffer_as_string :: inline (regex: *State) -> string {
 }
 
 get_codepoint :: inline (regex: *State) -> int, int {
-    fetch_until(regex, 4);
+    fetch(regex, 4);
     str := buffer_as_string(regex);
     char, char_size := inline character_utf8_to_utf32(str.data, str.count);
     return char, char_size;

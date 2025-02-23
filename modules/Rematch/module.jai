@@ -63,6 +63,7 @@ String :: #import "String";
 #load "replace.jai";
 #load "to_string.jai";
 #load "allocator.jai";
+#load "ranges.jai";
 
 Flags :: enum_flags {
     NONE :: 0;

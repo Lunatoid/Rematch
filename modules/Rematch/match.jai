@@ -130,7 +130,7 @@ match_internal :: (state: *State, regex: *Regex, $use_fetch: bool) -> [..] Match
                 state.buffer.count -= state.index;
                 total_index += state.index;
                 state.index = 0;
-                #if use_fetch fetch(state, 1);
+                fetch(state, 1, use_fetch);
             }
 
             if !(regex.flags & .GLOBAL) then break;
@@ -244,11 +244,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
 
     if step.symbol == {
         case .LITERAL;
-            #if use_fetch {
-                if !fetch(regex, step.literal.count) then return .FAILURE;
-            } else {
-                if regex.index + step.literal.count > regex.buffer.count return .FAILURE;
-            }
+            if !fetch(regex, step.literal.count, use_fetch) then return .FAILURE;
 
             p_str := buffer_as_string(regex);
             p_str.count = step.literal.count;
@@ -369,11 +365,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
             match.data = regex.buffer.data + capture.range.start;
             match.count = capture.range.count;
 
-            #if use_fetch {
-                if !fetch(regex, match.count) then return .FAILURE;
-            } else {
-                if regex.index + match.count > regex.buffer.count then return .FAILURE;
-            }
+            if !fetch(regex, match.count, use_fetch) then return .FAILURE;
 
             p_str := buffer_as_string(regex);
             p_str.count = match.count;
@@ -465,11 +457,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
                     return .FAILURE;
 
                 case .ANCHOR_END;
-                    #if use_fetch {
-                        if !fetch(regex, 1) then return .SUCCESS;
-                    } else {
-                        if regex.index + 1 > regex.buffer.count then return .SUCCESS;
-                    }
+                    if !fetch(regex, 1, use_fetch) then return .SUCCESS;
 
                     if regex.flags | .MULTILINE {
                         return ifx regex.buffer[regex.index] == #char "\n" then .SUCCESS else .FAILURE;
@@ -644,13 +632,7 @@ try_match :: (regex: *State, initial_group: *Group, $use_fetch: bool) -> Match_R
             return false;
         }
 
-        #if use_fetch {
-            has_input := fetch(regex, 1);
-        } else {
-            has_input := regex.index + 1 <= regex.buffer.count;
-        }
-
-        if !has_input || get_state().step_index < 0 ||
+        if !fetch(regex, 1, use_fetch) || get_state().step_index < 0 ||
            get_state().step_index >= get_state().group.steps.count {
             matched_necessary := true;
             new_group := false;
@@ -768,13 +750,7 @@ try_match :: (regex: *State, initial_group: *Group, $use_fetch: bool) -> Match_R
         }
 
         for 1..step.quantifier.max_times {
-            #if use_fetch {
-                has_input := fetch(regex, 1);
-            } else {
-                has_input := regex.index + 1 <= regex.buffer.count;
-            }
-
-            if !has_input then break;
+            if !fetch(regex, 1, use_fetch) then break;
 
             match_result = try_match_single(regex, step, use_fetch);
 
@@ -853,19 +829,23 @@ remove_group_child_captures :: (captures: *[..] Capture, group: *Group) {
 
 #scope_module
 
-fetch :: inline (regex: *State, count: int) -> bool {
-    necessary := count - (regex.buffer.count - regex.index);
+fetch :: inline (regex: *State, count: int, $use_fetch: bool) -> bool {
+    #if use_fetch {
+        necessary := count - (regex.buffer.count - regex.index);
 
-    if necessary <= 0 || regex.end_of_input then return necessary <= 0;
+        if necessary <= 0 || regex.end_of_input then return necessary <= 0;
 
-    read := regex.text_stream.callback(*regex.buffer, necessary, regex.text_stream.user_data);
+        read := regex.text_stream.callback(*regex.buffer, necessary, regex.text_stream.user_data);
 
-    regex.end_of_input = necessary > read;
-    return necessary <= read;
+        regex.end_of_input = necessary > read;
+        return necessary <= read;
+    } else {
+        return regex.index + count <= regex.buffer.count;
+    }
 }
 
 advance :: inline (regex: *State, count := 1, $use_fetch: bool) {
-    #if use_fetch fetch(regex, count);
+    fetch(regex, count, use_fetch);
     regex.index += count;
 }
 
@@ -874,7 +854,7 @@ buffer_as_string :: inline (regex: *State) -> string {
 }
 
 get_codepoint :: inline (regex: *State, $use_fetch: bool) -> int, int {
-    #if use_fetch fetch(regex, 4);
+    fetch(regex, 4, use_fetch);
     str := buffer_as_string(regex);
     char, char_size := inline character_utf8_to_utf32(str.data, str.count);
     return char, char_size;

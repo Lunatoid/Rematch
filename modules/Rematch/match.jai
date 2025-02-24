@@ -10,7 +10,7 @@ match :: inline (regex: *Regex, text: string, options := Match_Options.{}) -> [.
     state.buffer.count = text.count;
     state.end_of_input = true;
 
-    matches, match_result := match_internal(*state, regex, false);
+    matches, match_result := match_internal(*state, regex, .STREAMING);
 
     string_matches := match_ranges_to_strings(matches, text);
     free_matches(matches);
@@ -28,7 +28,7 @@ match :: inline (regex: *Regex, stream: Text_Stream, options := Match_Options.{}
     array_reserve(*state.buffer, 32);
     fetch(*state, 1);
 
-    matches, match_result := match_internal(*state, regex, true);
+    matches, match_result := match_internal(*state, regex, NONE);
 
     array_free(state.buffer);
 
@@ -63,7 +63,7 @@ Text_Stream :: struct {
 
 #scope_file
 
-match_internal :: (state: *State, regex: *Regex, $use_fetch: bool) -> [..] Match_Ranges, Match_Result {
+match_internal :: (state: *State, regex: *Regex, $opt_flags: Opt_Flags) -> [..] Match_Ranges, Match_Result {
     root_group: Step;
     root_group.symbol = .GROUP;
     root_group.group = regex.root;
@@ -85,7 +85,7 @@ match_internal :: (state: *State, regex: *Regex, $use_fetch: bool) -> [..] Match
     state.tracking_allocator.allocator = context.allocator;
     state.allocator = .{tracking_allocator_proc, *state.tracking_allocator};
 
-    if regex.flags & .STICKY then advance(state, regex.last_index, use_fetch);
+    if regex.flags & .STICKY then advance(state, regex.last_index, opt_flags);
 
     total_index := 0;
     while !(state.index + 1 > state.buffer.count && state.end_of_input) {
@@ -95,7 +95,7 @@ match_internal :: (state: *State, regex: *Regex, $use_fetch: bool) -> [..] Match
             break;
         }
 
-        result := try_match(state, *regex.root, use_fetch);
+        result := try_match(state, *regex.root, opt_flags);
         defer array_reset_keeping_memory(*state.captures);
 
         if result == .MATCH {
@@ -130,13 +130,13 @@ match_internal :: (state: *State, regex: *Regex, $use_fetch: bool) -> [..] Match
                 state.buffer.count -= state.index;
                 total_index += state.index;
                 state.index = 0;
-                fetch(state, 1, use_fetch);
+                fetch(state, 1, opt_flags);
             }
 
             if !(regex.flags & .GLOBAL) then break;
         } else if result == .NO_MATCH {
             state.index = old_index;
-            next_codepoint(state, use_fetch);
+            next_codepoint(state, opt_flags);
             if regex.flags & .STICKY then break;
         } else {
             break;
@@ -234,7 +234,7 @@ Single_Match_Result :: enum {
     FAILURE;
 }
 
-try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Match_Result {
+try_match_single :: (regex: *State, step: *Step, $opt_flags: Opt_Flags) -> Single_Match_Result {
     regex.total_steps += 1;
 
     state_index := regex.group_stack.count - 1;
@@ -244,7 +244,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
 
     if step.symbol == {
         case .LITERAL;
-            if !fetch(regex, step.literal.count, use_fetch) then return .FAILURE;
+            if !fetch(regex, step.literal.count, opt_flags) then return .FAILURE;
 
             p_str := buffer_as_string(regex);
             p_str.count = step.literal.count;
@@ -260,14 +260,14 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
                 is_equal = equal(l_str, p_str);
             }
 
-            advance(regex, step.literal.count * xx is_equal, use_fetch);
+            advance(regex, step.literal.count * xx is_equal, opt_flags);
 
             return ifx is_equal then .SUCCESS else .FAILURE;
 
         case .WILDCARD;
-            char, char_size := get_codepoint(regex, use_fetch);
+            char, char_size := get_codepoint(regex, opt_flags);
             if char != #char "\n" || get_state().group.flags & .DOT_ALL {
-                advance(regex, char_size, use_fetch);
+                advance(regex, char_size, opt_flags);
                 return .SUCCESS;
             }
 
@@ -289,7 +289,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
             return .NEW_GROUP;
 
         case .CHAR_CLASS;
-            char, char_size := get_codepoint(regex, use_fetch);
+            char, char_size := get_codepoint(regex, opt_flags);
             result: enum {
                 UNKNOWN;
                 MATCH;
@@ -322,7 +322,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
                 result = ifx step.char_class.negated then .MATCH else .NO_MATCH;
             }
 
-            advance(regex, char_size * xx (result == .MATCH), use_fetch);
+            advance(regex, char_size * xx (result == .MATCH), opt_flags);
             return ifx result == .MATCH then .SUCCESS else .FAILURE;
 
         case .GROUP;
@@ -365,7 +365,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
             match.data = regex.buffer.data + capture.range.start;
             match.count = capture.range.count;
 
-            if !fetch(regex, match.count, use_fetch) then return .FAILURE;
+            if !fetch(regex, match.count, opt_flags) then return .FAILURE;
 
             p_str := buffer_as_string(regex);
             p_str.count = match.count;
@@ -377,7 +377,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
                 is_equal = equal(match, p_str);
             }
 
-            advance(regex, match.count * xx is_equal, use_fetch);
+            advance(regex, match.count * xx is_equal, opt_flags);
 
             return ifx is_equal then .SUCCESS else .FAILURE;
 
@@ -457,7 +457,7 @@ try_match_single :: (regex: *State, step: *Step, $use_fetch: bool) -> Single_Mat
                     return .FAILURE;
 
                 case .ANCHOR_END;
-                    if !fetch(regex, 1, use_fetch) then return .SUCCESS;
+                    if !fetch(regex, 1, opt_flags) then return .SUCCESS;
 
                     if regex.flags | .MULTILINE {
                         return ifx regex.buffer[regex.index] == #char "\n" then .SUCCESS else .FAILURE;
@@ -538,7 +538,7 @@ Match_Result :: enum {
     OUT_OF_TIME;
 }
 
-try_match :: (regex: *State, initial_group: *Group, $use_fetch: bool) -> Match_Result {
+try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Match_Result {
     regex.bt_stack.allocator = temp;
     regex.captures.allocator = regex.allocator;
     regex.group_stack.allocator = regex.allocator;
@@ -606,7 +606,7 @@ try_match :: (regex: *State, initial_group: *Group, $use_fetch: bool) -> Match_R
                 }
 
                 for 1..advance_amount {
-                    next_codepoint(regex, use_fetch);
+                    next_codepoint(regex, opt_flags);
                 }
 
                 array_reserve(*regex.captures, bt.captures.allocated);
@@ -632,7 +632,7 @@ try_match :: (regex: *State, initial_group: *Group, $use_fetch: bool) -> Match_R
             return false;
         }
 
-        if !fetch(regex, 1, use_fetch) || get_state().step_index < 0 ||
+        if !fetch(regex, 1, opt_flags) || get_state().step_index < 0 ||
            get_state().step_index >= get_state().group.steps.count {
             matched_necessary := true;
             new_group := false;
@@ -656,7 +656,7 @@ try_match :: (regex: *State, initial_group: *Group, $use_fetch: bool) -> Match_R
                         }
                     } else if step.assertion.type == .LOOKBEHIND {
                         // Match trailing lookbehind
-                        if try_match_single(regex, step, use_fetch) == .NEW_GROUP {
+                        if try_match_single(regex, step, opt_flags) == .NEW_GROUP {
                             new_group = true;
                         }
                     }
@@ -750,9 +750,9 @@ try_match :: (regex: *State, initial_group: *Group, $use_fetch: bool) -> Match_R
         }
 
         for 1..step.quantifier.max_times {
-            if !fetch(regex, 1, use_fetch) then break;
+            if !fetch(regex, 1, opt_flags) then break;
 
-            match_result = try_match_single(regex, step, use_fetch);
+            match_result = try_match_single(regex, step, opt_flags);
 
             if match_result != .SUCCESS then break;
 
@@ -827,10 +827,13 @@ remove_group_child_captures :: (captures: *[..] Capture, group: *Group) {
     }
 }
 
-#scope_module
+Opt_Flags :: enum_flags {
+    NONE :: 0;
+    STREAMING :: (1 << 0);
+}
 
-fetch :: inline (regex: *State, count: int, $use_fetch: bool) -> bool {
-    #if use_fetch {
+fetch :: inline (regex: *State, count: int, $opt_flags: Opt_Flags) -> bool {
+    #if opt_flags & .STREAMING {
         necessary := count - (regex.buffer.count - regex.index);
 
         if necessary <= 0 || regex.end_of_input then return necessary <= 0;
@@ -844,8 +847,8 @@ fetch :: inline (regex: *State, count: int, $use_fetch: bool) -> bool {
     }
 }
 
-advance :: inline (regex: *State, count := 1, $use_fetch: bool) {
-    fetch(regex, count, use_fetch);
+advance :: inline (regex: *State, count := 1, $opt_flags: Opt_Flags) {
+    fetch(regex, count, opt_flags);
     regex.index += count;
 }
 
@@ -853,16 +856,16 @@ buffer_as_string :: inline (regex: *State) -> string {
     return string.{ regex.buffer.count - regex.index, regex.buffer.data + regex.index };
 }
 
-get_codepoint :: inline (regex: *State, $use_fetch: bool) -> int, int {
-    fetch(regex, 4, use_fetch);
+get_codepoint :: inline (regex: *State, $opt_flags: Opt_Flags) -> int, int {
+    fetch(regex, 4, opt_flags);
     str := buffer_as_string(regex);
     char, char_size := inline character_utf8_to_utf32(str.data, str.count);
     return char, char_size;
 }
 
-next_codepoint :: inline (regex: *State, $use_fetch: bool) {
-    _, char_size := get_codepoint(regex, use_fetch);
-    advance(regex, char_size, use_fetch);
+next_codepoint :: inline (regex: *State, $opt_flags: Opt_Flags) {
+    _, char_size := get_codepoint(regex, opt_flags);
+    advance(regex, char_size, opt_flags);
 }
 
 // Actually counts codepoints

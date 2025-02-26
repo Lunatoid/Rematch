@@ -9,6 +9,7 @@ Tracking_Allocator :: struct {
 
 tracking_allocator_proc :: (mode: Allocator_Mode, size: s64, old_size: s64, old_memory: *void, allocator_data: *void) -> *void {
     ta := allocator_data.(*Tracking_Allocator);
+    if !ta return null;
 
     if mode == {
         case .ALLOCATE;

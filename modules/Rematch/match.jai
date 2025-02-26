@@ -10,7 +10,7 @@ match :: inline (regex: *Regex, text: string, options := Match_Options.{}) -> [.
     state.buffer.count = text.count;
     state.end_of_input = true;
 
-    matches, match_result := match_internal(*state, regex, .NONE);
+    matches, match_result := match_internal(*state, regex, .FAST_LITERALS);
 
     string_matches := match_ranges_to_strings(matches, text);
     free_matches(matches);
@@ -64,6 +64,13 @@ Text_Stream :: struct {
 #scope_file
 
 match_internal :: (state: *State, regex: *Regex, $opt_flags: Opt_Flags) -> [..] Match_Ranges, Match_Result {
+    state.tracking_allocator.allocator = context.allocator;
+    tracking_allocator := Allocator.{ tracking_allocator_proc, *state.tracking_allocator };
+
+    state.captures.allocator = tracking_allocator;
+    state.group_stack.allocator = tracking_allocator;
+    state.bt_stack.allocator = temp;
+
     root_group: Step;
     root_group.symbol = .GROUP;
     root_group.group = regex.root;
@@ -76,15 +83,6 @@ match_internal :: (state: *State, regex: *Regex, $opt_flags: Opt_Flags) -> [..] 
         array_free(state.bt_stack);
     }
 
-    //
-    // Right now our search strategy is very naive
-    // We try to match at our current position, if
-    // we fail we go to the next codepoint and try again.
-    //
-
-    state.tracking_allocator.allocator = context.allocator;
-    state.allocator = .{tracking_allocator_proc, *state.tracking_allocator};
-
     if regex.flags & .STICKY then advance(state, regex.last_index, opt_flags);
 
     total_index := 0;
@@ -95,7 +93,7 @@ match_internal :: (state: *State, regex: *Regex, $opt_flags: Opt_Flags) -> [..] 
             break;
         }
 
-        result := try_match(state, *regex.root, opt_flags);
+        result := try_match(state, *regex.root, opt_flags,, tracking_allocator);
         defer array_reset_keeping_memory(*state.captures);
 
         if result == .MATCH {
@@ -122,21 +120,43 @@ match_internal :: (state: *State, regex: *Regex, $opt_flags: Opt_Flags) -> [..] 
             }
             regex.last_index = total_index + state.index;
 
-            if old_index == state.index then state.index += 1;
+            if old_index == state.index then next_codepoint(state, opt_flags);
 
             // We don't need the preceding text anymore
-            if !state.end_of_input {
-                memcpy(state.buffer.data, state.buffer.data + state.index, state.buffer.count - state.index);
-                state.buffer.count -= state.index;
-                total_index += state.index;
-                state.index = 0;
-                fetch(state, 1, opt_flags);
+            #if opt_flags & .STREAMING {
+                if !state.end_of_input {
+                    memcpy(state.buffer.data, state.buffer.data + state.index, state.buffer.count - state.index);
+                    state.buffer.count -= state.index;
+                    total_index += state.index;
+                    state.index = 0;
+                    fetch(state, 1, opt_flags);
+                }
             }
 
             if !(regex.flags & .GLOBAL) then break;
         } else if result == .NO_MATCH {
             state.index = old_index;
-            next_codepoint(state, opt_flags);
+
+            // This is not improving performance
+            #if opt_flags & .FAST_LITERALS && false {
+                // @TODO: deep search, right now ((foo)) would be first_step=GROUP
+                first_step := regex.root.steps[0];
+                if first_step.symbol == .LITERAL {
+                    literal: string;
+                    literal.data = first_step.literal.chars.data;
+                    literal.count = first_step.literal.count;
+
+                    next_lit := find_index_from_left(xx state.buffer, literal, state.index + 1);
+
+                    if next_lit == -1 then break;
+
+                    advance(state, next_lit - state.index, opt_flags);
+                } else {
+                    next_codepoint(state, opt_flags);
+                }
+            } else {
+                next_codepoint(state, opt_flags);
+            }
             if regex.flags & .STICKY then break;
         } else {
             break;
@@ -539,10 +559,6 @@ Match_Result :: enum {
 }
 
 try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Match_Result {
-    regex.bt_stack.allocator = temp;
-    regex.captures.allocator = regex.allocator;
-    regex.group_stack.allocator = regex.allocator;
-
     add_group_to_stack(regex, initial_group, .{}, .GROUP);
 
     defer {
@@ -759,6 +775,13 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
                 if step.quantifier.max_times == S64_MAX && next_literal.count > 0 {
                     lit_index = find_index_from_left(xx regex.buffer, next_literal, regex.index);
                     can_create_backtrack = false; // Override default backtrack behaviour
+
+                    if lit_index == -1 && !rewind() return .NO_MATCH;
+
+                    if step.symbol == .WILDCARD && (!regex.flags & .DOT_ALL) {
+                        newline_index := find_index_from_left(xx regex.buffer, #char "\n", regex.index);
+                        advance(regex, min(lit_index, newline_index) - regex.index, opt_flags);
+                    }
                 }
             }
         }
@@ -794,6 +817,9 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
                             top_bt := *regex.bt_stack[count-lit_bt];
                             bot_bt := *regex.bt_stack[count-1];
                             top_bt.ownership, bot_bt.ownership = bot_bt.ownership, top_bt.ownership;
+                        } else if step.symbol == .WILDCARD && (!regex.flags & .DOT_ALL) {
+                            newline_index := find_index_from_left(xx regex.buffer, #char "\n", regex.index);
+                            advance(regex, min(lit_index, newline_index) - regex.index, opt_flags);
                         }
                     }
                 }

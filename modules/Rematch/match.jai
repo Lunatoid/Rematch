@@ -10,7 +10,7 @@ match :: inline (regex: *Regex, text: string, options := Match_Options.{}) -> [.
     state.buffer.count = text.count;
     state.end_of_input = true;
 
-    matches, match_result := match_internal(*state, regex, .FAST_LITERALS);
+    matches, match_result := match_internal(*state, regex, .NONE);
 
     string_matches := match_ranges_to_strings(matches, text);
     free_matches(matches);
@@ -137,26 +137,7 @@ match_internal :: (state: *State, regex: *Regex, $opt_flags: Opt_Flags) -> [..] 
         } else if result == .NO_MATCH {
             state.index = old_index;
 
-            // This is not improving performance
-            #if opt_flags & .FAST_LITERALS && false {
-                // @TODO: deep search, right now ((foo)) would be first_step=GROUP
-                first_step := regex.root.steps[0];
-                if first_step.symbol == .LITERAL {
-                    literal: string;
-                    literal.data = first_step.literal.chars.data;
-                    literal.count = first_step.literal.count;
-
-                    next_lit := find_index_from_left(xx state.buffer, literal, state.index + 1);
-
-                    if next_lit == -1 then break;
-
-                    advance(state, next_lit - state.index, opt_flags);
-                } else {
-                    next_codepoint(state, opt_flags);
-                }
-            } else {
-                next_codepoint(state, opt_flags);
-            }
+            next_codepoint(state, opt_flags);
             if regex.flags & .STICKY then break;
         } else {
             break;
@@ -759,33 +740,6 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
         can_create_backtrack := step.quantifier.min_times != step.quantifier.max_times;
         bt: *Backtrack_State;
 
-        // From benchmarking this is actually just a little bit slower than no optimization
-        // at all. Maybe try to streamline this?
-        #if opt_flags & .FAST_LITERALS {
-            next_literal: string;
-            lit_index := -1;
-            lit_bt := 0;
-            if get_state().step_index + 1 < get_state().group.steps.count {
-                next_step := *get_state().group.steps[get_state().step_index + 1];
-                if next_step.symbol == .LITERAL {
-                    next_literal.data = next_step.literal.chars.data;
-                    next_literal.count = next_step.literal.count;
-                }
-
-                if step.quantifier.max_times == S64_MAX && next_literal.count > 0 {
-                    lit_index = find_index_from_left(xx regex.buffer, next_literal, regex.index);
-                    can_create_backtrack = false; // Override default backtrack behaviour
-
-                    if lit_index == -1 && !rewind() return .NO_MATCH;
-
-                    if step.symbol == .WILDCARD && (!regex.flags & .DOT_ALL) {
-                        newline_index := find_index_from_left(xx regex.buffer, #char "\n", regex.index);
-                        advance(regex, min(lit_index, newline_index) - regex.index, opt_flags);
-                    }
-                }
-            }
-        }
-
         if can_create_backtrack && step.quantifier.min_times == 0 {
             // Create backtrack state for 0 matches
             create_backtrack_state(regex);
@@ -794,36 +748,6 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
 
         for 1..step.quantifier.max_times {
             if !fetch(regex, 1, opt_flags) then break;
-
-            #if opt_flags & .FAST_LITERALS {
-                if regex.index == lit_index {
-                    lit_bt += 1;
-                    create_backtrack_state(regex);
-                    lit_index = find_index_from_left(xx regex.buffer, next_literal, lit_index+1);
-
-                    if lit_index == -1 {
-                        match_times = -1;
-
-                        if !step.quantifier.greedy {
-                            // Reverse backtracking stack from latest to earliest
-                            count := regex.bt_stack.count;
-                            for 0..(lit_bt-1)/2 {
-                                top := count-it-1;
-                                bot := count-lit_bt+it;
-                                regex.bt_stack[top], regex.bt_stack[bot] = regex.bt_stack[bot], regex.bt_stack[top];
-                            }
-
-                            // Transfer ownership between first and last match as well
-                            top_bt := *regex.bt_stack[count-lit_bt];
-                            bot_bt := *regex.bt_stack[count-1];
-                            top_bt.ownership, bot_bt.ownership = bot_bt.ownership, top_bt.ownership;
-                        } else if step.symbol == .WILDCARD && (!regex.flags & .DOT_ALL) {
-                            newline_index := find_index_from_left(xx regex.buffer, #char "\n", regex.index);
-                            advance(regex, min(lit_index, newline_index) - regex.index, opt_flags);
-                        }
-                    }
-                }
-            }
 
             match_result = try_match_single(regex, step, opt_flags);
 
@@ -906,10 +830,6 @@ Opt_Flags :: enum_flags {
     // Streaming mode is on. fetch() will use the callback. regex.buffer might not have
     // the entire text buffer.
     STREAMING :: (1 << 0);
-
-    // In a situation like /.*foo/, it will search for the substring foo and only create
-    // backtracking states at those positions
-    FAST_LITERALS :: (1 << 1);
 }
 
 fetch :: inline (regex: *State, count: int, $opt_flags: Opt_Flags) -> bool {

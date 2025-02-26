@@ -317,29 +317,29 @@ json_deserialize :: (any: Any, json: JSON_Value) -> bool {
     if any.type.type == {
         case .INTEGER;
             if json.type != .NUMBER then return false;
-            value := cast(s64) json.value_number;
+            value := json.value_number.(s64);
             range_check_and_store(value, xx any.type, any.value_pointer);
 
         case .FLOAT;
             if json.type != .NUMBER then return false;
 
             if any.type.runtime_size == {
-                case 4; << cast(*float32) any.value_pointer = xx json.value_number;
-                case 8; << cast(*float64) any.value_pointer = json.value_number;
+                case 4; any.value_pointer.(*float32).* = xx json.value_number;
+                case 8; any.value_pointer.(*float64).* = json.value_number;
             }
 
         case .BOOL;
             if json.type != .BOOL then return false;
-            << cast(*bool) any.value_pointer = json.value_bool;
+            any.value_pointer.(*bool).* = json.value_bool;
 
         case .STRING;
             if json.type != .STRING then return false;
-            << cast(*string) any.value_pointer = copy_string(json.value_string);
+            any.value_pointer.(*string).* = copy_string(json.value_string);
 
         case .STRUCT;
             if json.type != .OBJECT then return false;
 
-            ti := cast(*Type_Info_Struct) any.type;
+            ti := any.type.(*Type_Info_Struct);
 
             for ti.members {
                 if array_find(it.notes, "NoSerialize") then continue;
@@ -370,15 +370,16 @@ json_deserialize :: (any: Any, json: JSON_Value) -> bool {
         case .ARRAY;
             if json.type != .ARRAY then return false;
 
-            ti := cast(*Type_Info_Array) any.type;
+            ti := any.type.(*Type_Info_Array);
 
+            array := any.value_pointer.(*Resizable_Array);
             if ti.array_type == .RESIZABLE {
-                array := cast(*Resizable_Array) any.value_pointer;
                 array_reserve(array, json.value_array.count, ti.element_type.runtime_size);
                 array.count = json.value_array.count;
             }
 
-            count, data := get_array_count_and_data(any.value_pointer, ti);
+            count, data := get_array_count_and_data(array, ti);
+            memset(data, 0, count * ti.element_type.runtime_size);
 
             for json.value_array {
                 element_any: Any;
@@ -389,7 +390,7 @@ json_deserialize :: (any: Any, json: JSON_Value) -> bool {
             }
 
         case .ENUM;
-            ti := cast(*Type_Info_Enum) any.type;
+            ti := any.type.(*Type_Info_Enum);
             if json.type == {
                 case .STRING;
                     // Enum via string
@@ -415,7 +416,7 @@ json_deserialize :: (any: Any, json: JSON_Value) -> bool {
             }
 
         case .POINTER;
-            << cast(**void) any.value_pointer = null;
+            any.value_pointer.(**void).* = null;
 
         case;
             return false;

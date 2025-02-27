@@ -1,6 +1,4 @@
 
-#import "String";
-
 match :: inline (regex: *Regex, text: string, options := Match_Options.{}) -> [..] Match_Strings, Match_Result {
     state: State;
     state.flags = regex.flags;
@@ -89,7 +87,7 @@ match_internal :: (state: *State, regex: *Regex, $opt_flags: Opt_Flags) -> [..] 
     while !(state.index + 1 > state.buffer.count && state.end_of_input) {
         old_index := state.index;
 
-        if state.buffer[state.index] == #char "\n" && !(regex.flags & .MULTILINE) {
+        if !(regex.flags & .MULTILINE) && state.buffer[state.index] == #char "\n" {
             break;
         }
 
@@ -553,7 +551,8 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
     INVALID_STATE_INDEX :: -1;
     dummy_state: Group_State;
 
-    end_time := current_time_monotonic() + milliseconds_to_apollo(regex.options.time_limit_ms);
+    end_time: Apollo_Time;
+    if regex.options.time_limit_ms > 0 then end_time = current_time_monotonic() + milliseconds_to_apollo(regex.options.time_limit_ms);
 
     while regex.group_stack.count > 0 {
         if regex.options.memory_limit > 0 {
@@ -878,14 +877,21 @@ next_codepoint :: inline (regex: *State, $opt_flags: Opt_Flags) {
     advance(regex, char_size, opt_flags);
 }
 
-// Actually counts codepoints
 count_group_steps :: (group: *Group, captures: [] Capture) -> int, int {
     min_steps := 0;
     max_steps := 0;
 
+    add_min :: (i: int) #expand {
+        if i == S64_MAX || min_steps + i < 0 {
+            min_steps = S64_MAX;
+        } else {
+            min_steps += i;
+        }
+    }
+
     add_max :: (i: int) #expand {
-        if i == S64_MAX {
-            max_steps = i;
+        if i == S64_MAX || max_steps + i < 0 {
+            max_steps = S64_MAX;
         } else {
             max_steps += i;
         }
@@ -896,24 +902,26 @@ count_group_steps :: (group: *Group, captures: [] Capture) -> int, int {
             case .LITERAL;
                 min_bytes := it.quantifier.min_times * it.literal.count;
                 max_bytes := it.quantifier.max_times * it.literal.count;
-                min_steps += min_bytes;
+                add_min(min_bytes);
                 add_max(max_bytes);
 
             case .WILDCARD; #through;
             case .CHAR_CLASS;
-                min_steps += it.quantifier.min_times;
+                add_min(it.quantifier.min_times);
                 add_max(it.quantifier.max_times);
 
             case .GROUP;
                 min_group, max_group := count_group_steps(*it.group, captures);
-                min_steps += min_group;
-                add_max(max_group);
+                _, min_low := multiply_64bits_with_overflow(xx min_group, xx it.quantifier.min_times);
+                add_min(ifx min_low < xx S64_MAX then xx min_low else S64_MAX);
+                _, max_low := multiply_64bits_with_overflow(xx max_group, xx it.quantifier.max_times);
+                add_max(ifx max_low < xx S64_MAX then xx max_low else S64_MAX);
 
             case .DISJUNCTION;
                 min_left, max_left := count_group_steps(*it.disjunction.left, captures);
                 min_right, max_right := count_group_steps(*it.disjunction.right, captures);
 
-                min_steps += min(min_left, min_right);
+                add_min(min(min_left, min_right));
                 add_max(max(max_left, max_right));
 
             case .BACKREFERENCE;
@@ -939,8 +947,8 @@ count_group_steps :: (group: *Group, captures: [] Capture) -> int, int {
                 }
 
                 if found {
-                    min_steps += capture.range.count;
-                    max_steps += capture.range.count;
+                    add_min(capture.range.count);
+                    add_max(capture.range.count);
                 }
         }
     }

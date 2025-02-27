@@ -57,6 +57,7 @@ Flags:
 String :: #import "String";
 #import "Unicode";
 #import "IntroSort";
+#import "String";
 
 #load "compile.jai";
 #load "match.jai";

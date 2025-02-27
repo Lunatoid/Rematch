@@ -150,5 +150,84 @@
         ]
       }
     ]
+  },
+  {
+    "pattern": "(?<!baz(?<!foo))bar",
+    "inputs": [
+      {
+        "text": "bazfoobar",
+        "matches": [
+          [
+            "bar"
+          ]
+        ]
+      },
+      {
+        "text": "foobar",
+        "matches": [
+          [
+            "bar"
+          ]
+        ]
+      },
+      {
+        "text": "bar",
+        "matches": [
+          [
+            "bar"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(?<!(?<!foo))bar",
+    "inputs": [
+      {
+        "text": "bar",
+        "matches": []
+      },
+      {
+        "text": "foobar",
+        "matches": [
+          [
+            "bar"
+          ]
+        ]
+      },
+      {
+        "text": "foofoobar",
+        "matches": [
+          [
+            "bar"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "pattern": "(?<!(?<!(?<!foo)))bar",
+    "inputs": [
+      {
+        "text": "bar",
+        "matches": [
+          [
+            "bar"
+          ]
+        ]
+      },
+      {
+        "text": "foobar",
+        "matches": []
+      },
+      {
+        "text": "foofoobar",
+        "matches": []
+      },
+      {
+        "text": "foofoofoobar",
+        "matches": []
+      }
+    ]
   }
 ]

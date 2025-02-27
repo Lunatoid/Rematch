@@ -421,15 +421,12 @@ try_match_single :: (regex: *State, step: *Step, $opt_flags: Opt_Flags) -> Singl
 
                     // Calculate the min and max amount of characters the lookahead could be.
                     min_steps, max_steps := count_group_steps(*step.assertion.group, regex.captures);
-                    prev_string_length := regex.index;
-
-                    if prev_string_length < min_steps {
+                    if regex.index < min_steps {
                         return ifx step.assertion.negated then .SUCCESS else .FAILURE;
                     }
 
-                    max_steps = min(prev_string_length, max_steps);
+                    max_steps = min(regex.index, max_steps);
 
-                    group_start := regex.index;
                     add_group_to_stack(regex, *step.assertion.group, step.quantifier, group_type);
                     regex.index -= max_steps;
 
@@ -440,6 +437,7 @@ try_match_single :: (regex: *State, step: *Step, $opt_flags: Opt_Flags) -> Singl
                         bt.group_stack[bt.group_stack.count - 1].step_index = -1;
                         bt.group_stack[bt.group_stack.count - 2].step_index += 1;
                         bt.repeat_count = max_steps - min_steps;
+                        bt.backwards_count = bt.repeat_count;
                     }
 
                     regex.index += max_steps - min_steps;
@@ -583,10 +581,22 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
 
         rewind :: () -> bool #expand {
             if get_state().group_type == .NEGATED_LOOKAROUND {
-                regex.index = get_state().group_start;
-                pop(*regex.group_stack);
-                state_index = INVALID_STATE_INDEX;
-                return true;
+                exhausted_lookaround := true;
+
+                if regex.bt_stack.count > 0 {
+                    bt := peek_pointer(regex.bt_stack);
+                    if peek_pointer(bt.group_stack).group == peek_pointer(regex.group_stack).group {
+                        // We still have a backtracking state with more options to check
+                        exhausted_lookaround = false;
+                    }
+                }
+
+                if exhausted_lookaround {
+                    regex.index = get_state().group_start;
+                    pop(*regex.group_stack);
+                    state_index = regex.group_stack.count - 1;
+                    return true;
+                }
             }
 
             if regex.bt_stack.count > 0 {

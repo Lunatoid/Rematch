@@ -23,10 +23,14 @@ tracking_allocator_proc :: (mode: Allocator_Mode, size: s64, old_size: s64, old_
     ta.high_water_mark = max(ta.high_water_mark, ta.current_allocated);
 
     real_old_memory := old_memory;
-    if real_old_memory then real_old_memory -= size_of(int);
+    real_old_size := old_size;
+    if real_old_memory {
+        real_old_memory -= size_of(int);
+        real_old_size += size_of(int);
+    }
 
     // Store size so we can adjust on free
-    data := ta.allocator.proc(mode, size + size_of(int), old_size + size_of(int), real_old_memory, ta.allocator.data);
+    data := ta.allocator.proc(mode, size + size_of(int), real_old_size, real_old_memory, ta.allocator.data);
     if data then data.(*int).* = size;
     return data + size_of(int);
 }

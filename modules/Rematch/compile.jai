@@ -340,7 +340,9 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
                 } else if p.data[0] == #char "}" {
                     max_str = min_str;
                 }
-
+                if !p.count {
+                    return regex, false;
+                }
                 assert(p.data[0] == #char "}");
 
                 min := to_integer(min_str);
@@ -604,13 +606,19 @@ parse_escape :: (p: *string) -> int, bool {
 
         case #char "x";
             // \xFF
+            if p.count < 3 {
+                return 0, false;
+            }
             advance(p);
             hex_str := p.*;
             hex_str.count = 2;
             advance(p, 2);
             result, success := string_to_int(hex_str, base=16);
             return result, success;
-            case #char "u";
+        case #char "u";
+            if p.count < 3 {
+                return 0, false;
+            }
             advance(p);
             hex_str := p.*;
             hex_str.count = 0;
@@ -632,6 +640,9 @@ parse_escape :: (p: *string) -> int, bool {
                 advance(p);
             } else {
                 // \uHHHH
+                if p.count < 4 {
+                    return 0, false;
+                }
                 advance(p, 4);
                 hex_str.count = 4;
             }

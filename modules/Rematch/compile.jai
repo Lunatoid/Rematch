@@ -190,8 +190,11 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
                 group.flags = peek(group_stack).flags;
 
                 advance(p);
+                if p.count == 0 then return regex, false;
+
                 if p.data[0] == #char "?" {
                     advance(p);
+                    if p.count == 0 then return regex, false;
 
                     if p.data[0] == {
                         case #char ":";
@@ -212,6 +215,8 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
 
                         case #char "<";
                             advance(p);
+                            if p.count == 0 then return regex, false;
+
                             if p.data[0] == {
                                 case #char "!";
                                     // Negative lookbehind (?<!Foo)
@@ -243,11 +248,13 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
                             flags_to_enable := p.*;
                             flags_to_enable.count = 0;
 
-                            while true {
+                            while p.count > 0 {
                                 if p.data[0] == #char "-" || p.data[0] == #char ":" then break;
                                 flags_to_enable.count += 1;
                                 advance(p);
                             }
+
+                            if p.count == 0 then return regex, false;
 
                             flags_to_disable: string;
                             if p.data[0] == #char "-" {
@@ -256,7 +263,7 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
                                 flags_to_disable = p.*;
                                 flags_to_disable.count = 0;
 
-                                while p.data[0] != #char ":" {
+                                while p.count > 0 && p.data[0] != #char ":" {
                                     flags_to_disable.count += 1;
                                     advance(p);
                                 }
@@ -304,6 +311,7 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
 
             case #char "{";
                 advance(p);
+                if p.count == 0 then return regex, false;
 
                 min_str := p.*;
                 min_str.count = 0;
@@ -341,23 +349,28 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
 
             case #char "[";
                 advance(p);
+                if p.count == 0 then return regex, false;
 
                 negated := false;
-                if p.data[0] == #char "^" {
+                if p.count > 0 && p.data[0] == #char "^" {
                     negated = true;
                     advance(p);
                 }
 
+                if p.count == 0 then return regex, false;
+
                 chars: [..] Char_Class;
                 chars.allocator = temp;
 
-                while p.data[0] != #char "]" {
+                while p.count > 0 && p.data[0] != #char "]" {
                     start, start_size := get_codepoint(p);
 
                     if start == #char "\\" {
                         start=, success := parse_escape(p);
                         if !success {
                             advance(p);
+                            if p.count == 0 then return regex, false;
+
                             if p.data[0] == {
                                 case #char "W";
                                     array_add(*chars, ..NEGATED_WORD_CHAR_CLASS);
@@ -388,7 +401,7 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
 
 
                     end := start;
-                    if p.data[0] == #char "-" && p.data[1] != #char "]" {
+                    if p.count > 1 && p.data[0] == #char "-" && p.data[1] != #char "]" {
                         advance(p);
 
                         end=, end_size := get_codepoint(p);
@@ -404,6 +417,7 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
 
                 add_char_class(negated, ..chars);
 
+                if p.count == 0 then return regex, false;
                 assert(p.data[0] == #char "]");
                 char = #char "]";
 
@@ -466,15 +480,17 @@ compile :: (pattern: string, flags := Flags.NONE) -> Regex, bool {
                         // Named backreference
                         advance(p);
                         advance(p);
+                        if p.count == 0 then return regex, false;
                         if p.data[0] != #char "<" then return regex, false;
                         advance(p);
                         name := p.*;
                         name.count = 0;
 
-                        while p.data[0] != #char ">" {
+                        while p.count > 0 && p.data[0] != #char ">" {
                             advance(p);
                             name.count += 1;
                         }
+                        if p.count == 0 then return regex, false;
                         advance(p);
                         add_backreference(name);
 

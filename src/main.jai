@@ -1,5 +1,6 @@
 
 USE_MEMORY_DEBUGGER :: DEBUG;
+USE_TRACY :: false;
 
 #import "Basic"()(MEMORY_DEBUGGER=USE_MEMORY_DEBUGGER);
 #import "Print_Color";
@@ -7,8 +8,10 @@ USE_MEMORY_DEBUGGER :: DEBUG;
 #import "File_Utilities";
 #import "Sort";
 #import "String";
+#import "File";
 
 Rematch :: #import "Rematch";
+#if USE_TRACY then Tracy :: #import "tracy"(.CLIENT);
 
 Test_Input :: struct {
     text: string;
@@ -24,8 +27,12 @@ Test_Case :: struct {
 
 main :: () {
     #if USE_MEMORY_DEBUGGER then defer report_memory_leaks();
+    #if USE_TRACY then Tracy.FrameMark();
+    #if USE_TRACY then defer Tracy.FrameMark();
 
-    files := file_list("tests",, temp);
+    files := file_list("tests");
+    defer array_free(files);
+
     files = quick_sort(files, (a: string, b: string) -> int {
         file_a := path_filename(a);
         file_b := path_filename(b);
@@ -45,10 +52,28 @@ main :: () {
 
     log("Starting tests...");
     total_compile_time, total_match_time: Apollo_Time;
+
+    log("[Test Cases]");
     for files {
+        defer free(it);
+
+        if path_extension(it) != "json" then continue;
         compile_time, match_time := perform_tests(it);
         total_compile_time += compile_time;
         total_match_time += match_time;
+    }
+
+    #if true {
+        log("\n[Large Input]\n\n");
+        {
+            compile_time, match_time := large_input_test();
+            total_compile_time += compile_time;
+            total_match_time += match_time;
+
+            print_color("All Pass!", color=.GREEN);
+            log(" (compiling: % μs, matching: % μs)\n",
+                to_microseconds(compile_time), to_microseconds(match_time));
+        }
     }
 
     compile_time_us := to_microseconds(total_compile_time);
@@ -80,7 +105,10 @@ test_single :: (pattern: string, text: string, flags: Rematch.Flags = .GLOBAL) {
 }
 
 perform_tests :: (path: string) -> (compile_time: Apollo_Time, match_time: Apollo_Time) {
-    tests_json, success := json_from_file(path,, temp);
+    defer reset_temporary_storage();
+
+    #if USE_TRACY then Tracy.ZoneScoped(text=path);
+    tests_json, success := json_from_file(path);
     defer json_free(tests_json);
 
     compile_time, match_time: Apollo_Time;
@@ -93,8 +121,6 @@ perform_tests :: (path: string) -> (compile_time: Apollo_Time, match_time: Apoll
     log("\n--- % ---\n\n", path);
 
     test_cases: [..] Test_Case;
-    defer array_free(test_cases);
-
     json_deserialize(test_cases, tests_json,, temp);
 
     pass_count := 0;
@@ -197,8 +223,62 @@ perform_tests :: (path: string) -> (compile_time: Apollo_Time, match_time: Apoll
 
     if pass_count == test_cases.count {
         print("  : ");
-        print_color("All Pass!\n", color=.GREEN);
+        print_color("All Pass!", color=.GREEN);
+        log(" (compiling: % μs, matching: % μs)",
+            to_microseconds(compile_time), to_microseconds(match_time));
     }
+
+    return compile_time, match_time;
+}
+
+large_input_test :: () -> Apollo_Time, Apollo_Time {
+    #if USE_TRACY then Tracy.ZoneScoped();
+    PATTERNS :: string.[
+        "a",
+        "[\\w\\.+-]+@[\\w\\.-]+\\.[\\w\\.-]+",
+        "[\\w]+://[^/\\s?#]+[^\\s?#]+(?:\\?[^\\s#]*)?(?:#[^\\s]*)?",
+        "(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9])"
+    ];
+
+    PATTERN_NAMES :: string.[
+        "a",
+        "e-mail",
+        "url",
+        "ip"
+    ];
+
+    compile_time, match_time, start_time, end_time: Apollo_Time;
+
+    input_text := read_entire_file("tests/input-text.txt");
+    defer free(input_text);
+
+    for pattern: PATTERNS {
+        start_time = current_time_monotonic();
+        regex := Rematch.compile(pattern, .MULTILINE | .GLOBAL);
+        defer Rematch.deinit(*regex);
+        end_time = current_time_monotonic();
+
+        current_compile_time := end_time - start_time;
+        compile_time += current_compile_time;
+
+        start_time = current_time_monotonic();
+        matches, match_result := Rematch.match(*regex, input_text);
+        defer Rematch.free_matches(matches);
+        end_time = current_time_monotonic();
+
+        current_match_time := end_time - start_time;
+        match_time += current_match_time;
+
+        print("  %:", PATTERN_NAMES[it_index]);
+        for 1..8-PATTERN_NAMES[it_index].count {
+            print(" ");
+        }
+        print_color("Pass!", color=.GREEN);
+        log(" (compiling: % μs, matching: % μs)\n",
+            to_microseconds(current_compile_time), to_microseconds(current_match_time));
+    }
+
+    log("\n\n");
 
     return compile_time, match_time;
 }

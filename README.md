@@ -185,7 +185,10 @@ It will print JSON of the test, which can be added in the `tests/` directory.
 I tried to add many tests to this engine, but I am sure that there are still edge cases. Please report them if you find them!
 
 This engine is not super optimized. On my machine it can complete the test suite in around 19 ms.
-Node/V8's Regex implementation can do it in about 12 ms.
+Node/V8's Regex implementation can do it in about 14 ms.
+
+As of now, this engine is not very well suited for large inputs. The tests that run over
+the large test file (200.000 lines) is currently 40x slower than Node/V8.
 
 This repo is mirrored from a private repository.
 

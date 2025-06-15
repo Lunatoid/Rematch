@@ -578,65 +578,6 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
             return *regex.group_stack[state_index];
         }
 
-        rewind :: () -> bool #expand {
-            if get_state().group_type == .NEGATED_LOOKAROUND {
-                exhausted_lookaround := true;
-
-                if regex.bt_stack.count > 0 {
-                    bt := peek_pointer(regex.bt_stack);
-                    if peek_pointer(bt.group_stack).group == peek_pointer(regex.group_stack).group {
-                        // We still have a backtracking state with more options to check
-                        exhausted_lookaround = false;
-                    }
-                }
-
-                if exhausted_lookaround {
-                    regex.index = get_state().group_start;
-                    pop(*regex.group_stack);
-                    state_index = regex.group_stack.count - 1;
-                    return true;
-                }
-            }
-
-            if regex.bt_stack.count > 0 {
-                if get_state().group_type == .LOOKAROUND || get_state().group_type == .NEGATED_LOOKAROUND {
-                    regex.index = get_state().group_start;
-                }
-
-                bt := peek_pointer(regex.bt_stack);
-                regex.index = bt.index;
-
-                advance_amount := bt.repeat_count - 1;
-                if bt.backwards_count > 0 {
-                    advance_amount = bt.backwards_count - bt.repeat_count;
-                }
-
-                for 1..advance_amount {
-                    next_codepoint(regex, opt_flags);
-                }
-
-                array_reserve(*regex.captures, bt.captures.allocated);
-                memcpy(regex.captures.data, bt.captures.data, size_of(Capture) * bt.captures.count);
-                regex.captures.count = bt.captures.count;
-
-                array_reserve(*regex.group_stack, bt.group_stack.allocated);
-                memcpy(regex.group_stack.data, bt.group_stack.data, size_of(Group_State) * bt.group_stack.count);
-                regex.group_stack.count = bt.group_stack.count;
-
-                peek_pointer(regex.group_stack).step_index += 1;
-                state_index = INVALID_STATE_INDEX;
-
-                bt.repeat_count -= 1;
-                if bt.repeat_count <= 0 {
-                    if bt.ownership & .OWNS_CAPTURES then array_free(bt.captures);
-                    if bt.ownership & .OWNS_GROUP_STACK then array_free(bt.group_stack);
-                    pop(*regex.bt_stack);
-                }
-
-                return true;
-            }
-            return false;
-        }
 
         if !fetch(regex, 1, opt_flags) || get_state().step_index < 0 ||
            get_state().step_index >= get_state().group.steps.count {
@@ -678,8 +619,8 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
 
             if matched_necessary && get_state().group_type == .NEGATED_LOOKAROUND {
                 // Rewind twice. First one will simply pop the lookaround, second one will actually rewind.
-                if !rewind() return .NO_MATCH;
-                if !rewind() return .NO_MATCH;
+                if !rewind(regex, opt_flags) return .NO_MATCH;
+                if !rewind(regex, opt_flags) return .NO_MATCH;
                 continue;
             }
 
@@ -734,7 +675,7 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
                     continue;
                 }
             } else {
-                if !rewind() return .NO_MATCH;
+                if !rewind(regex, opt_flags) return .NO_MATCH;
             }
 
             continue;
@@ -779,13 +720,13 @@ try_match :: (regex: *State, initial_group: *Group, $opt_flags: Opt_Flags) -> Ma
             bt.backwards_count = bt.repeat_count;
 
             // Now rewind to the top of the stack (earliest valid matches)
-            rewind();
+            rewind(regex, opt_flags);
             continue;
         }
 
         if match_result != .NEW_GROUP {
             if (match_times < step.quantifier.min_times || match_times > step.quantifier.max_times) {
-                if !rewind() return .NO_MATCH;
+                if !rewind(regex, opt_flags) return .NO_MATCH;
                 continue;
             }
         }
@@ -954,5 +895,65 @@ count_group_steps :: (group: *Group, captures: [] Capture) -> int, int {
     }
 
     return min_steps, max_steps;
+}
+
+rewind :: (regex: *State, $opt_flags: Opt_Flags) -> bool {
+    state := peek_pointer(regex.group_stack);
+
+    if state.group_type == .NEGATED_LOOKAROUND {
+        exhausted_lookaround := true;
+
+        if regex.bt_stack.count > 0 {
+            bt := peek_pointer(regex.bt_stack);
+            if peek_pointer(bt.group_stack).group == peek_pointer(regex.group_stack).group {
+                // We still have a backtracking state with more options to check
+                exhausted_lookaround = false;
+            }
+        }
+
+        if exhausted_lookaround {
+            regex.index = state.group_start;
+            pop(*regex.group_stack);
+            return true;
+        }
+    }
+
+    if regex.bt_stack.count > 0 {
+        if state.group_type == .LOOKAROUND || state.group_type == .NEGATED_LOOKAROUND {
+            regex.index = state.group_start;
+        }
+
+        bt := peek_pointer(regex.bt_stack);
+        regex.index = bt.index;
+
+        advance_amount := bt.repeat_count - 1;
+        if bt.backwards_count > 0 {
+            advance_amount = bt.backwards_count - bt.repeat_count;
+        }
+
+        for 1..advance_amount {
+            next_codepoint(regex, opt_flags);
+        }
+
+        array_reserve(*regex.captures, bt.captures.allocated);
+        memcpy(regex.captures.data, bt.captures.data, size_of(Capture) * bt.captures.count);
+        regex.captures.count = bt.captures.count;
+
+        array_reserve(*regex.group_stack, bt.group_stack.allocated);
+        memcpy(regex.group_stack.data, bt.group_stack.data, size_of(Group_State) * bt.group_stack.count);
+        regex.group_stack.count = bt.group_stack.count;
+
+        peek_pointer(regex.group_stack).step_index += 1;
+
+        bt.repeat_count -= 1;
+        if bt.repeat_count <= 0 {
+            if bt.ownership & .OWNS_CAPTURES then array_free(bt.captures);
+            if bt.ownership & .OWNS_GROUP_STACK then array_free(bt.group_stack);
+            pop(*regex.bt_stack);
+        }
+
+        return true;
+    }
+    return false;
 }
 

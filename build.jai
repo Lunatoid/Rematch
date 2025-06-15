@@ -5,17 +5,7 @@
 
 RELEASE :: true;
 
-ENABLE_PLUGINS :: true;
-
-PLUGIN_NAMES :: string.[
-    "Check"
-];
-
 #run build();
-
-#if ENABLE_PLUGINS {
-    #import "Metaprogram_Plugins";
-}
 
 build :: () {
     set_build_options_dc(.{do_output=false});
@@ -37,33 +27,20 @@ build :: () {
         options.backend = .X64;
     }
 
-    #if ENABLE_PLUGINS {
-        plugins: [..] *Metaprogram_Plugin;
-        init_plugins(PLUGIN_NAMES, *plugins, w);
-    }
+    options.additional_linker_arguments = string.[
+        "/usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/libgcc_eh.a",
+        "/usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/libgcc.a",
+    ];
 
     set_build_options(options, w);
 
-    intercept_flags: Intercept_Flags;
-    #if ENABLE_PLUGINS {
-        for plugins if it.before_intercept then it.before_intercept(it, *intercept_flags);
-    }
-
-    compiler_begin_intercept(w, intercept_flags);
-
-    #if ENABLE_PLUGINS {
-        for plugins if it.add_source then it.add_source(it);
-    }
+    compiler_begin_intercept(w);
 
     add_build_file("src/main.jai", w);
     add_build_string(tprint("DEBUG :: %;", !RELEASE), w);
 
     while message_loop := true {
         message := compiler_wait_for_message();
-
-        #if ENABLE_PLUGINS {
-            for plugins if it.message it.message(it, message);
-        }
 
         if !message break;
 
@@ -81,10 +58,5 @@ build :: () {
     }
 
     compiler_end_intercept(w);
-
-    #if ENABLE_PLUGINS {
-        for plugins if it.finish   then it.finish(it);
-        for plugins if it.shutdown then it.shutdown(it);
-    }
 }
 
